@@ -12,7 +12,6 @@ export const streamingConfig: protos.google.cloud.speech.v1.IStreamingRecognitio
     encoding: AudioEncoding.LINEAR16,
     sampleRateHertz: SAMPLE_RATE,
     languageCode: 'yue-Hant-HK',
-    alternativeLanguageCodes: ['zh-TW', 'en-US'],
     enableAutomaticPunctuation: true,
     model: 'latest_long',
   },
