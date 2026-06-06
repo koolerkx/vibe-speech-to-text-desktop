@@ -35,6 +35,11 @@ export function registerIpcHandlers(window: BrowserWindow): void {
             window.webContents.send(IpcChannel.SttStatus, status);
           }
         },
+        (rms) => {
+          if (!window.isDestroyed()) {
+            window.webContents.send(IpcChannel.AudioLevel, rms);
+          }
+        },
       );
     } else {
       setActive(false);

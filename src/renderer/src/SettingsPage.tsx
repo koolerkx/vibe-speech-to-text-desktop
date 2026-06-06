@@ -9,6 +9,20 @@ import {
   BACKGROUND_OPACITY_STEP,
   LANGUAGE_OPTIONS,
   modelsForApiVersion,
+  VAD_CLOSE_HOLD_MS_MAX,
+  VAD_CLOSE_HOLD_MS_MIN,
+  VAD_CLOSE_HOLD_MS_STEP,
+  VAD_PREROLL_MS_MAX,
+  VAD_PREROLL_MS_MIN,
+  VAD_PREROLL_MS_STEP,
+  VAD_REOPEN_CHUNKS_MAX,
+  VAD_REOPEN_CHUNKS_MIN,
+  VAD_REOPEN_CHUNKS_STEP,
+  VAD_THRESHOLD_MAX,
+  VAD_THRESHOLD_MIN,
+  VAD_THRESHOLD_STEP,
+  type VolumeMeterUnit,
+  VOLUME_METER_UNIT_OPTIONS,
 } from '../../shared/settings';
 import { Select } from './components/Select';
 
@@ -117,6 +131,78 @@ export function SettingsPage(): ReactNode {
               }
             />
           </Field>
+
+          <Field label="Volume meter unit">
+            <Select
+              value={settings.appearance.volumeMeterUnit}
+              onChange={(value) =>
+                void apply(
+                  window.api.updateSettings({
+                    appearance: { volumeMeterUnit: value as VolumeMeterUnit },
+                  }),
+                )
+              }
+              options={VOLUME_METER_UNIT_OPTIONS}
+            />
+          </Field>
+        </Section>
+
+        <Section title="Voice activity detection (VAD)">
+          <label className="flex items-center justify-between gap-3 text-sm">
+            <span className="text-gray-300">Close stream on silence</span>
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-blue-500"
+              checked={settings.vad.enabled}
+              onChange={(event) =>
+                void apply(window.api.updateSettings({ vad: { enabled: event.target.checked } }))
+              }
+            />
+          </label>
+
+          <SliderField
+            label="Silence threshold (RMS)"
+            value={settings.vad.silenceThreshold}
+            min={VAD_THRESHOLD_MIN}
+            max={VAD_THRESHOLD_MAX}
+            step={VAD_THRESHOLD_STEP}
+            onChange={(value) =>
+              void apply(window.api.updateSettings({ vad: { silenceThreshold: value } }))
+            }
+          />
+
+          <SliderField
+            label="Silence hold before closing (ms)"
+            value={settings.vad.closeHoldMs}
+            min={VAD_CLOSE_HOLD_MS_MIN}
+            max={VAD_CLOSE_HOLD_MS_MAX}
+            step={VAD_CLOSE_HOLD_MS_STEP}
+            onChange={(value) =>
+              void apply(window.api.updateSettings({ vad: { closeHoldMs: value } }))
+            }
+          />
+
+          <SliderField
+            label="Voiced chunks to reopen"
+            value={settings.vad.reopenVoicedChunks}
+            min={VAD_REOPEN_CHUNKS_MIN}
+            max={VAD_REOPEN_CHUNKS_MAX}
+            step={VAD_REOPEN_CHUNKS_STEP}
+            onChange={(value) =>
+              void apply(window.api.updateSettings({ vad: { reopenVoicedChunks: value } }))
+            }
+          />
+
+          <SliderField
+            label="Preroll replayed on reopen (ms)"
+            value={settings.vad.prerollMs}
+            min={VAD_PREROLL_MS_MIN}
+            max={VAD_PREROLL_MS_MAX}
+            step={VAD_PREROLL_MS_STEP}
+            onChange={(value) =>
+              void apply(window.api.updateSettings({ vad: { prerollMs: value } }))
+            }
+          />
         </Section>
 
         <Section title="Usage (minutes recorded)">
@@ -152,6 +238,55 @@ function Field({ label, children }: { label: string; children: ReactNode }): Rea
       <span className="text-gray-300">{label}</span>
       {children}
     </label>
+  );
+}
+
+// Slider paired with a number input over one value: drag to tune coarsely, or
+// type for an exact figure. The number input is clamped so manual entry cannot
+// push the value outside the slider's range.
+function SliderField({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+}): ReactNode {
+  const clamp = (next: number) => Math.max(min, Math.min(max, next));
+  return (
+    <Field label={label}>
+      <div className="flex items-center gap-3">
+        <input
+          type="range"
+          className="flex-1 accent-blue-500"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(event) => onChange(Number(event.target.value))}
+        />
+        <input
+          type="number"
+          className="w-20 rounded-md bg-white/10 px-2 py-1 text-right tabular-nums"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          // Clamp only the upper bound while typing so intermediate values below a
+          // non-zero min (e.g. "5" on the way to "5000") are not snapped back to
+          // min on every keystroke; enforce the full range on blur.
+          onChange={(event) => onChange(Math.min(max, Number(event.target.value)))}
+          onBlur={(event) => onChange(clamp(Number(event.target.value)))}
+        />
+      </div>
+    </Field>
   );
 }
 

@@ -1,7 +1,11 @@
 import { type MouseEvent, useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Circle, Mic, Minus, Settings, Square, X } from 'lucide-react';
 import type { SttStatus, WordConfidence } from '../../shared/ipc-types';
-import { DEFAULT_SETTINGS, MAIN_LANGUAGE_OPTIONS } from '../../shared/settings';
+import {
+  DEFAULT_SETTINGS,
+  MAIN_LANGUAGE_OPTIONS,
+  type VolumeMeterUnit,
+} from '../../shared/settings';
 import { audioCapture, CaptureError } from './audio/capture';
 import { Select } from './components/Select';
 
@@ -82,7 +86,63 @@ function listenIconColor(status: CaptureStatus, sttStatus: SttStatus): string {
   if (sttStatus === 'error') {
     return 'text-red-500';
   }
+  if (sttStatus === 'dormant') {
+    return 'text-slate-400';
+  }
   return 'text-blue-400';
+}
+
+// Volume meter display scale. INT16 RMS is 0–32767; speech rarely exceeds ~8000,
+// so the linear meter saturates there to keep the useful range readable. The dB
+// meter maps the same RMS to dBFS over a -60..0 window.
+const METER_LINEAR_MAX = 8000;
+const METER_DB_FLOOR = -60;
+const INT16_FULL_SCALE = 32767;
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function toMeterFraction(rms: number, unit: VolumeMeterUnit): number {
+  if (unit === 'db') {
+    if (rms <= 0) {
+      return 0;
+    }
+    const db = 20 * Math.log10(rms / INT16_FULL_SCALE);
+    return clamp01((db - METER_DB_FLOOR) / -METER_DB_FLOOR);
+  }
+  return clamp01(rms / METER_LINEAR_MAX);
+}
+
+// The fill is the live RMS; the amber tick is the silence threshold. Both use the
+// same scale as the VAD gate, so sliding the threshold in Settings lands the tick
+// exactly where the gate cuts — tune by watching the fill cross the tick.
+function VolumeMeter({
+  rms,
+  threshold,
+  unit,
+}: {
+  rms: number;
+  threshold: number;
+  unit: VolumeMeterUnit;
+}) {
+  const fill = toMeterFraction(rms, unit);
+  const mark = toMeterFraction(threshold, unit);
+  const voiced = rms >= threshold;
+  return (
+    <div className="relative h-2 w-full overflow-hidden rounded-full bg-white/10">
+      <div
+        className={`h-full rounded-full transition-[width] duration-75 ${
+          voiced ? 'bg-green-400' : 'bg-gray-500'
+        }`}
+        style={{ width: `${fill * 100}%` }}
+      />
+      <div
+        className="absolute top-0 h-full w-0.5 bg-amber-300"
+        style={{ left: `${mark * 100}%` }}
+      />
+    </div>
+  );
 }
 
 export function App() {
@@ -96,6 +156,11 @@ export function App() {
     DEFAULT_SETTINGS.appearance.backgroundOpacity,
   );
   const [languageCode, setLanguageCode] = useState(DEFAULT_SETTINGS.model.languageCode);
+  const [volumeRms, setVolumeRms] = useState(0);
+  const [volumeMeterUnit, setVolumeMeterUnit] = useState<VolumeMeterUnit>(
+    DEFAULT_SETTINGS.appearance.volumeMeterUnit,
+  );
+  const [vadThreshold, setVadThreshold] = useState(DEFAULT_SETTINGS.vad.silenceThreshold);
   const [collapsed, setCollapsed] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [tooltip, setTooltip] = useState<WordTooltip | null>(null);
@@ -111,17 +176,19 @@ export function App() {
       }
     });
     const unsubscribeStatus = window.api.onSttStatus(setSttStatus);
-    void window.api.getSettings().then((settings) => {
+    const unsubscribeLevel = window.api.onAudioLevel(setVolumeRms);
+    const applySettings = (settings: Awaited<ReturnType<typeof window.api.getSettings>>) => {
       setBackgroundOpacity(settings.appearance.backgroundOpacity);
       setLanguageCode(settings.model.languageCode);
-    });
-    const unsubscribeSettings = window.api.onSettingsChanged((settings) => {
-      setBackgroundOpacity(settings.appearance.backgroundOpacity);
-      setLanguageCode(settings.model.languageCode);
-    });
+      setVolumeMeterUnit(settings.appearance.volumeMeterUnit);
+      setVadThreshold(settings.vad.silenceThreshold);
+    };
+    void window.api.getSettings().then(applySettings);
+    const unsubscribeSettings = window.api.onSettingsChanged(applySettings);
     return () => {
       unsubscribeResult();
       unsubscribeStatus();
+      unsubscribeLevel();
       unsubscribeSettings();
     };
   }, []);
@@ -156,10 +223,12 @@ export function App() {
       if (status === 'listening') {
         await audioCapture.stop();
         setStatus('idle');
+        setVolumeRms(0);
       } else {
         setErrorMessage(null);
         setCurrent({ text: '', isFinal: false });
         setSttStatus('idle');
+        setVolumeRms(0);
         await audioCapture.start();
         setStatus('listening');
       }
@@ -288,6 +357,7 @@ export function App() {
               {formatElapsed(elapsedMs)}
             </span>
           </div>
+          {listening && <VolumeMeter rms={volumeRms} threshold={vadThreshold} unit={volumeMeterUnit} />}
           {errorMessage && <p className="text-xs text-red-400">{errorMessage}</p>}
           <div
             className="flex flex-1 flex-col overflow-hidden rounded-lg bg-black/20 text-sm selection:bg-blue-500/40"

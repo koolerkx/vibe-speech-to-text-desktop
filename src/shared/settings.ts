@@ -58,23 +58,67 @@ export interface ModelSettings {
   enableAutomaticPunctuation: boolean;
 }
 
+// Main-page volume meter scale. 'linear' shows raw RMS amplitude; 'db' shows the
+// same value mapped to decibels relative to full scale.
+export type VolumeMeterUnit = 'linear' | 'db';
+
 export interface AppearanceSettings {
   backgroundOpacity: number;
+  volumeMeterUnit: VolumeMeterUnit;
+}
+
+export interface VadSettings {
+  // When enabled, the cloud stream is closed after sustained silence and reopened
+  // on speech, so idle time is not billed.
+  enabled: boolean;
+  // RMS of a LINEAR16 chunk (0–32767 scale) below this counts as silence.
+  silenceThreshold: number;
+  // Continuous silence required before the live stream is closed to stop billing.
+  closeHoldMs: number;
+  // Consecutive voiced chunks required to reopen from dormant; debounces a single
+  // noise spike from reviving (and re-billing) the stream.
+  reopenVoicedChunks: number;
+  // Recent audio retained while dormant and replayed on reopen so the speech
+  // onset is not clipped during the stream open latency.
+  prerollMs: number;
 }
 
 export interface AppSettings {
   model: ModelSettings;
   appearance: AppearanceSettings;
+  vad: VadSettings;
 }
 
 export interface SettingsPatch {
   model?: Partial<ModelSettings>;
   appearance?: Partial<AppearanceSettings>;
+  vad?: Partial<VadSettings>;
 }
 
 export const BACKGROUND_OPACITY_MIN = 0.3;
 export const BACKGROUND_OPACITY_MAX = 1;
 export const BACKGROUND_OPACITY_STEP = 0.01;
+
+export const VOLUME_METER_UNIT_OPTIONS: SelectOption[] = [
+  { id: 'linear', label: 'Linear (RMS)' },
+  { id: 'db', label: 'Decibel (dB)' },
+];
+
+export const VAD_THRESHOLD_MIN = 0;
+export const VAD_THRESHOLD_MAX = 4000;
+export const VAD_THRESHOLD_STEP = 10;
+
+export const VAD_CLOSE_HOLD_MS_MIN = 500;
+export const VAD_CLOSE_HOLD_MS_MAX = 10_000;
+export const VAD_CLOSE_HOLD_MS_STEP = 100;
+
+export const VAD_REOPEN_CHUNKS_MIN = 1;
+export const VAD_REOPEN_CHUNKS_MAX = 10;
+export const VAD_REOPEN_CHUNKS_STEP = 1;
+
+export const VAD_PREROLL_MS_MIN = 0;
+export const VAD_PREROLL_MS_MAX = 2000;
+export const VAD_PREROLL_MS_STEP = 100;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   model: {
@@ -85,6 +129,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   appearance: {
     backgroundOpacity: 0.92,
+    volumeMeterUnit: 'linear',
+  },
+  vad: {
+    enabled: true,
+    silenceThreshold: 500,
+    closeHoldMs: 3000,
+    reopenVoicedChunks: 2,
+    prerollMs: 400,
   },
 };
 

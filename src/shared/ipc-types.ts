@@ -6,6 +6,7 @@ export const IpcChannel = {
   AppQuit: 'app:quit',
   AudioChunk: 'audio:chunk',
   AudioCaptureState: 'audio:capture-state',
+  AudioLevel: 'audio:level',
   SttResult: 'stt:result',
   SttStatus: 'stt:status',
   SettingsGet: 'settings:get',
@@ -33,7 +34,9 @@ export interface SttResult {
   words?: WordConfidence[];
 }
 
-export type SttStatus = 'idle' | 'live' | 'reconnecting' | 'error';
+// 'dormant': capture is on but the cloud stream is intentionally closed during
+// silence (VAD gate) to stop billing; it reopens automatically on speech.
+export type SttStatus = 'idle' | 'live' | 'reconnecting' | 'error' | 'dormant';
 
 export interface UsageSummary {
   totalMinutes: number;
@@ -56,6 +59,9 @@ export interface RendererApi {
   setCaptureState: (active: boolean) => void;
   onSttResult: (listener: (result: SttResult) => void) => () => void;
   onSttStatus: (listener: (status: SttStatus) => void) => () => void;
+  // RMS amplitude (LINEAR16, 0–32767 scale) of each ~100ms chunk, for the
+  // main-page volume meter; emitted only while capturing.
+  onAudioLevel: (listener: (rms: number) => void) => () => void;
   getSettings: () => Promise<AppSettings>;
   updateSettings: (patch: SettingsPatch) => Promise<AppSettings>;
   resetSettings: () => Promise<AppSettings>;

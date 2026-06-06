@@ -20,6 +20,7 @@ function mergeWithDefaults(partial: Partial<AppSettings> | null): AppSettings {
   return {
     model: { ...DEFAULT_SETTINGS.model, ...partial?.model },
     appearance: { ...DEFAULT_SETTINGS.appearance, ...partial?.appearance },
+    vad: { ...DEFAULT_SETTINGS.vad, ...partial?.vad },
   };
 }
 
@@ -64,6 +65,7 @@ export function updateSettings(patch: SettingsPatch): AppSettings {
   cached = {
     model: { ...current.model, ...patch.model },
     appearance: { ...current.appearance, ...patch.appearance },
+    vad: { ...current.vad, ...patch.vad },
   };
   persist();
   return cached;

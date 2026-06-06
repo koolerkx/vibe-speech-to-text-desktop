@@ -24,6 +24,11 @@ const api: RendererApi = {
     ipcRenderer.on(IpcChannel.SttStatus, handler);
     return () => ipcRenderer.removeListener(IpcChannel.SttStatus, handler);
   },
+  onAudioLevel: (listener) => {
+    const handler = (_event: IpcRendererEvent, rms: number) => listener(rms);
+    ipcRenderer.on(IpcChannel.AudioLevel, handler);
+    return () => ipcRenderer.removeListener(IpcChannel.AudioLevel, handler);
+  },
   getSettings: () => ipcRenderer.invoke(IpcChannel.SettingsGet),
   updateSettings: (patch) => ipcRenderer.invoke(IpcChannel.SettingsUpdate, patch),
   resetSettings: () => ipcRenderer.invoke(IpcChannel.SettingsReset),

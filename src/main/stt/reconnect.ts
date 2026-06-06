@@ -1,14 +1,13 @@
 import type { SttResult, SttStatus } from '../../shared/ipc-types.js';
 import { toBuffer } from '../audio/pcm.js';
+import { getSettings } from '../settings/store.js';
 import * as googleStream from './googleStream.js';
-import { streamLimits } from './streamingConfig.js';
+import { SAMPLE_RATE, streamLimits } from './streamingConfig.js';
 
-// Energy gate used as the segment-cut trigger: RMS of a LINEAR16 chunk below this
-// counts as silence. This is the pluggable VAD hook point — a real VAD would
-// replace isSilent() without touching the rotation policy.
-const SILENCE_RMS_THRESHOLD = 500;
 // Continuous silence required before a soft-limit rotation is allowed, so a cut
 // lands in a gap between utterances rather than on a brief intra-word pause.
+// Distinct from the VAD close-hold: rotation only re-opens immediately (no cost
+// saving), so its hold is an internal mechanic, not a user-facing knob.
 const SILENCE_HOLD_MS = 400;
 
 const RECONNECT_BASE_DELAY_MS = 500;
@@ -19,15 +18,22 @@ const RECONNECT_MAX_DELAY_MS = 8_000;
 const MAX_RECONNECT_ATTEMPTS = 10;
 // ~30s of 16kHz mono 16-bit audio. Caps memory while a reconnect is pending;
 // older audio past this is dropped (and logged) since it is unrecoverable anyway.
-const MAX_BUFFER_BYTES = 16_000 * 2 * 30;
+const MAX_BUFFER_BYTES = SAMPLE_RATE * 2 * 30;
+
+const BYTES_PER_SAMPLE = 2;
 
 let onResult: ((result: SttResult) => void) | null = null;
 let onStatus: ((status: SttStatus) => void) | null = null;
+let onLevel: ((rms: number) => void) | null = null;
 let status: SttStatus = 'idle';
 
 let active = false;
 let reconnecting = false;
 let awaitingFirstData = false;
+// VAD gate: stream intentionally closed during silence to stop billing. Distinct
+// from `reconnecting`, which is an involuntary drop being recovered.
+let dormant = false;
+let voicedRunCount = 0;
 
 let segmentStartMs = 0;
 let lastVoiceMs = 0;
@@ -39,16 +45,27 @@ let pending: Buffer[] = [];
 let pendingBytes = 0;
 let bufferOverflowLogged = false;
 
+// Rolling buffer of the most recent audio while dormant; replayed on reopen so
+// the speech onset (including the chunks consumed by the reopen debounce) is not
+// lost during the stream open latency.
+let preroll: Buffer[] = [];
+let prerollBytes = 0;
+
 export function start(
   resultListener: (result: SttResult) => void,
   statusListener: (status: SttStatus) => void,
+  levelListener: (rms: number) => void,
 ): void {
   onResult = resultListener;
   onStatus = statusListener;
+  onLevel = levelListener;
   active = true;
   reconnecting = false;
+  dormant = false;
+  voicedRunCount = 0;
   reconnectAttempts = 0;
   clearPending();
+  clearPreroll();
   openStream();
   if (googleStream.isActive()) {
     setStatus('live');
@@ -60,14 +77,28 @@ export function write(chunk: ArrayBuffer | Uint8Array): void {
     return;
   }
   const buffer = toBuffer(chunk);
+  const rms = computeRms(buffer);
+  onLevel?.(rms);
+
+  const vad = getSettings().vad;
+  const voiced = rms >= vad.silenceThreshold;
+  const now = Date.now();
+
   if (reconnecting) {
     bufferChunk(buffer);
     return;
   }
+  if (dormant) {
+    handleDormantChunk(buffer, voiced, vad.enabled, vad.reopenVoicedChunks, vad.prerollMs);
+    return;
+  }
+
   googleStream.write(buffer);
-  const now = Date.now();
-  if (!isSilent(buffer)) {
+  if (voiced) {
     lastVoiceMs = now;
+  } else if (vad.enabled && now - lastVoiceMs >= vad.closeHoldMs) {
+    enterDormant(now - lastVoiceMs);
+    return;
   }
   maybeRotate(now);
 }
@@ -75,10 +106,73 @@ export function write(chunk: ArrayBuffer | Uint8Array): void {
 export function stop(): void {
   active = false;
   reconnecting = false;
+  dormant = false;
+  voicedRunCount = 0;
   clearReconnectTimer();
   clearPending();
+  clearPreroll();
   googleStream.stop();
   setStatus('idle');
+}
+
+// Closing the live stream stops billing during silence; reopening replays the
+// preroll so no speech is lost. stop() detaches the stream without firing
+// onClose (it checks `stream !== closing`), so this does not trigger a reconnect.
+function enterDormant(silenceMs: number): void {
+  googleStream.stop();
+  dormant = true;
+  voicedRunCount = 0;
+  clearPreroll();
+  console.log(`[vad] silence held ${silenceMs}ms -> closing stream to stop billing`);
+  setStatus('dormant');
+}
+
+function handleDormantChunk(
+  buffer: Buffer,
+  voiced: boolean,
+  vadEnabled: boolean,
+  reopenVoicedChunks: number,
+  prerollMs: number,
+): void {
+  pushPreroll(buffer, prerollMs);
+  if (!vadEnabled) {
+    reopenFromDormant();
+    return;
+  }
+  if (!voiced) {
+    voicedRunCount = 0;
+    return;
+  }
+  voicedRunCount += 1;
+  if (voicedRunCount >= reopenVoicedChunks) {
+    reopenFromDormant();
+  }
+}
+
+function reopenFromDormant(): void {
+  dormant = false;
+  voicedRunCount = 0;
+  // Move the preroll into the pending buffer so the onset is replayed whether the
+  // stream opens now or only after a reconnect (on a synchronous open failure).
+  const prerollChunks = preroll.length;
+  const prerollMs = Math.round((prerollBytes / BYTES_PER_SAMPLE / SAMPLE_RATE) * 1000);
+  for (const buffer of preroll) {
+    bufferChunk(buffer);
+  }
+  clearPreroll();
+  openStream();
+  if (googleStream.isActive()) {
+    reconnecting = false;
+    reconnectAttempts = 0;
+    flushPending();
+    lastVoiceMs = Date.now();
+    console.log(`[vad] voice detected -> reopened stream, replayed ${prerollChunks} preroll chunks (~${prerollMs}ms)`);
+    setStatus('live');
+    return;
+  }
+  // Synchronous open failure already re-entered handleClose, which set
+  // `reconnecting` and scheduled a retry; the queued preroll flushes on success.
+  console.warn('[vad] reopen could not open stream; falling back to reconnect');
 }
 
 function openStream(): void {
@@ -188,6 +282,23 @@ function clearPending(): void {
   bufferOverflowLogged = false;
 }
 
+function pushPreroll(buffer: Buffer, prerollMs: number): void {
+  preroll.push(buffer);
+  prerollBytes += buffer.length;
+  const maxBytes = Math.floor((prerollMs / 1000) * SAMPLE_RATE) * BYTES_PER_SAMPLE;
+  while (prerollBytes > maxBytes && preroll.length > 0) {
+    const dropped = preroll.shift();
+    if (dropped) {
+      prerollBytes -= dropped.length;
+    }
+  }
+}
+
+function clearPreroll(): void {
+  preroll = [];
+  prerollBytes = 0;
+}
+
 function clearReconnectTimer(): void {
   if (reconnectTimer !== null) {
     clearTimeout(reconnectTimer);
@@ -203,15 +314,15 @@ function setStatus(next: SttStatus): void {
   onStatus?.(next);
 }
 
-function isSilent(buffer: Buffer): boolean {
-  const sampleCount = Math.floor(buffer.length / 2);
+function computeRms(buffer: Buffer): number {
+  const sampleCount = Math.floor(buffer.length / BYTES_PER_SAMPLE);
   if (sampleCount === 0) {
-    return true;
+    return 0;
   }
   let sumSquares = 0;
-  for (let offset = 0; offset + 1 < buffer.length; offset += 2) {
+  for (let offset = 0; offset + 1 < buffer.length; offset += BYTES_PER_SAMPLE) {
     const sample = buffer.readInt16LE(offset);
     sumSquares += sample * sample;
   }
-  return Math.sqrt(sumSquares / sampleCount) < SILENCE_RMS_THRESHOLD;
+  return Math.sqrt(sumSquares / sampleCount);
 }
