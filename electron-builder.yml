@@ -1,0 +1,21 @@
+appId: com.koolerkx.speechtotext
+productName: Speech to Text
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: resources
+    to: resources
+    filter:
+      - icon.png
+win:
+  target:
+    - nsis
+  icon: resources/icon.png
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true

@@ -1,19 +1,45 @@
 {
   "name": "speech-to-text-desktop",
   "version": "0.0.0",
+  "description": "Always-on-top speech-to-text desktop tool for Windows",
+  "author": "koolerkx",
   "private": true,
   "type": "module",
   "packageManager": "yarn@4.15.0",
+  "main": "out/main/index.js",
   "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "dist": "electron-vite build && electron-builder",
     "stt:smoke": "tsx scripts/stt-smoke.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@google-cloud/speech": "^6.7.0"
+    "@google-cloud/speech": "6.7.1",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "@tailwindcss/vite": "4.3.0",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.16",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "electron": "42.3.3",
+    "electron-builder": "26.15.0",
+    "electron-vite": "5.0.0",
+    "tailwindcss": "4.3.0",
+    "tsx": "4.22.4",
+    "typescript": "5.9.3",
+    "vite": "8.0.16"
+  },
+  "dependenciesMeta": {
+    "electron": {
+      "built": true
+    },
+    "esbuild": {
+      "built": true
+    }
   }
 }
