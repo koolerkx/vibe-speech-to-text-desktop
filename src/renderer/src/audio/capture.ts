@@ -94,7 +94,14 @@ export class AudioCapture {
       throw new CaptureError(CaptureErrorKind.Unsupported, 'getUserMedia is not available');
     }
     try {
-      return await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } });
+      return await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
     } catch (error) {
       throw toCaptureError(error);
     }
