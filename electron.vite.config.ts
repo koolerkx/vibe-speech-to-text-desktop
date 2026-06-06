@@ -9,7 +9,7 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: { index: resolve('src/main/index.ts') },
-        external: ['electron'],
+        external: ['electron', '@google-cloud/speech'],
       },
     },
   },

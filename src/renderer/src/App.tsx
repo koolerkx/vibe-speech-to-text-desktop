@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { audioCapture, CaptureError } from './audio/capture';
 
 type CaptureStatus = 'idle' | 'listening' | 'error';
@@ -7,6 +7,19 @@ export function App() {
   const [status, setStatus] = useState<CaptureStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [interim, setInterim] = useState('');
+  const [finalText, setFinalText] = useState('');
+
+  useEffect(() => {
+    return window.api.onSttResult((result) => {
+      if (result.isFinal) {
+        setFinalText(result.transcript);
+        setInterim('');
+      } else {
+        setInterim(result.transcript);
+      }
+    });
+  }, []);
 
   const toggleCapture = async () => {
     if (busy) {
@@ -19,6 +32,8 @@ export function App() {
         setStatus('idle');
       } else {
         setErrorMessage(null);
+        setInterim('');
+        setFinalText('');
         await audioCapture.start();
         setStatus('listening');
       }
@@ -66,6 +81,10 @@ export function App() {
           {status === 'listening' ? 'Stop' : 'Listen'}
         </button>
         {errorMessage && <p className="px-4 text-center text-xs text-red-400">{errorMessage}</p>}
+        <div className="w-full px-4 text-center text-sm">
+          {finalText && <p className="text-gray-100">{finalText}</p>}
+          {interim && <p className="text-gray-500 italic">{interim}</p>}
+        </div>
       </main>
     </div>
   );

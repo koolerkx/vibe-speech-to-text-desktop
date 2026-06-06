@@ -1,29 +1,15 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import speech, { protos } from '@google-cloud/speech';
-
-const { AudioEncoding } = protos.google.cloud.speech.v1.RecognitionConfig;
+import { SAMPLE_RATE, streamingConfig } from '../src/main/stt/streamingConfig.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const keyFilename = resolve(__dirname, '..', 'key.json');
 
-const SAMPLE_RATE = 16000;
 const SILENCE_SECONDS = 1;
 
 type StreamingConfig =
   protos.google.cloud.speech.v1.IStreamingRecognitionConfig;
-
-const streamingConfig: StreamingConfig = {
-  config: {
-    encoding: AudioEncoding.LINEAR16,
-    sampleRateHertz: SAMPLE_RATE,
-    languageCode: 'yue-Hant-HK',
-    alternativeLanguageCodes: ['zh-TW', 'en-US'],
-    enableAutomaticPunctuation: true,
-    model: 'latest_long',
-  },
-  interimResults: true,
-};
 
 function makeSilencePcm(seconds: number): Buffer {
   return Buffer.alloc(SAMPLE_RATE * seconds * 2, 0);
