@@ -4,6 +4,7 @@ import { createTray } from './tray.js';
 import { registerIpcHandlers } from './ipc.js';
 import { registerSettingsHandlers } from './settings/index.js';
 import { registerContextMenuHandlers } from './contextMenu.js';
+import { registerUsageHandlers } from './usage/index.js';
 
 let floatingWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -42,6 +43,7 @@ if (!hasSingleInstanceLock) {
     // can re-run on 'activate'.
     registerSettingsHandlers();
     registerContextMenuHandlers();
+    registerUsageHandlers();
     bootstrap();
 
     app.on('activate', () => {

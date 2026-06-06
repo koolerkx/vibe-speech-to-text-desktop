@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import type { UsageSummary } from '../../shared/ipc-types';
 import {
   API_VERSION_OPTIONS,
   type ApiVersion,
@@ -13,10 +14,16 @@ import { Select } from './components/Select';
 
 export function SettingsPage(): ReactNode {
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
 
   useEffect(() => {
     void window.api.getSettings().then(setSettings);
     return window.api.onSettingsChanged(setSettings);
+  }, []);
+
+  useEffect(() => {
+    void window.api.getUsage().then(setUsage);
+    return window.api.onUsageChanged(setUsage);
   }, []);
 
   if (!settings) {
@@ -112,6 +119,12 @@ export function SettingsPage(): ReactNode {
           </Field>
         </Section>
 
+        <Section title="Usage (minutes recorded)">
+          <UsageRow label="Total" minutes={usage?.totalMinutes ?? 0} />
+          <UsageRow label="This month" minutes={usage?.thisMonthMinutes ?? 0} />
+          <UsageRow label="Last month" minutes={usage?.lastMonthMinutes ?? 0} />
+        </Section>
+
         <button
           type="button"
           className="self-start rounded-md bg-white/10 px-3 py-1.5 text-sm font-medium hover:bg-white/20"
@@ -139,5 +152,14 @@ function Field({ label, children }: { label: string; children: ReactNode }): Rea
       <span className="text-gray-300">{label}</span>
       {children}
     </label>
+  );
+}
+
+function UsageRow({ label, minutes }: { label: string; minutes: number }): ReactNode {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-gray-300">{label}</span>
+      <span className="tabular-nums text-gray-100">{minutes} min</span>
+    </div>
   );
 }

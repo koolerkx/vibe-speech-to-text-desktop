@@ -4,6 +4,7 @@ import { handleChunk, setCaptureState } from './audio/pcmSink.js';
 import * as stt from './stt/reconnect.js';
 import { inject, setActive } from './inject/textInject.js';
 import { setFloatingWindowCollapsed } from './window.js';
+import { endUsageSession, startUsageSession } from './usage/index.js';
 
 export function registerIpcHandlers(window: BrowserWindow): void {
   ipcMain.on(IpcChannel.WindowHide, () => window.hide());
@@ -19,6 +20,7 @@ export function registerIpcHandlers(window: BrowserWindow): void {
     setCaptureState(active);
     if (active) {
       setActive(true);
+      startUsageSession();
       stt.start(
         (result) => {
           if (!window.isDestroyed()) {
@@ -36,6 +38,7 @@ export function registerIpcHandlers(window: BrowserWindow): void {
       );
     } else {
       setActive(false);
+      endUsageSession();
       stt.stop();
     }
   });

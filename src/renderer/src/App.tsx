@@ -17,6 +17,13 @@ interface CurrentText {
 const TOP_BAR_BUTTON =
   'flex h-[22px] w-[22px] items-center justify-center rounded-md bg-white/10 hover:bg-white/20 disabled:opacity-50';
 
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
 // The Listen button itself conveys the capture state, so its colour encodes the
 // stt connection status while listening.
 function listenIconColor(status: CaptureStatus, sttStatus: SttStatus): string {
@@ -44,6 +51,7 @@ export function App() {
   );
   const [languageCode, setLanguageCode] = useState(DEFAULT_SETTINGS.model.languageCode);
   const [collapsed, setCollapsed] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const historyEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -74,6 +82,17 @@ export function App() {
   useEffect(() => {
     historyEndRef.current?.scrollIntoView({ block: 'end' });
   }, [history]);
+
+  // Session timer: reset and tick while listening, freeze on stop.
+  useEffect(() => {
+    if (status !== 'listening') {
+      return;
+    }
+    const startedAt = Date.now();
+    setElapsedMs(0);
+    const intervalId = setInterval(() => setElapsedMs(Date.now() - startedAt), 250);
+    return () => clearInterval(intervalId);
+  }, [status]);
 
   const toggleCapture = async () => {
     if (busy) {
@@ -199,6 +218,13 @@ export function App() {
               )}
             </button>
             <Select value={languageCode} onChange={changeLanguage} options={MAIN_LANGUAGE_OPTIONS} />
+            <span
+              className={`ml-auto font-mono text-sm tabular-nums ${
+                listening ? 'text-red-400' : 'text-gray-400'
+              }`}
+            >
+              {formatElapsed(elapsedMs)}
+            </span>
           </div>
           {errorMessage && <p className="text-xs text-red-400">{errorMessage}</p>}
           <div

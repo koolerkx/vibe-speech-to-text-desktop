@@ -14,6 +14,8 @@ export const IpcChannel = {
   SettingsChanged: 'settings:changed',
   SettingsOpen: 'settings:open',
   ShowTranscriptMenu: 'transcript:show-menu',
+  UsageGet: 'usage:get',
+  UsageChanged: 'usage:changed',
 } as const;
 
 export type IpcChannel = (typeof IpcChannel)[keyof typeof IpcChannel];
@@ -24,6 +26,12 @@ export interface SttResult {
 }
 
 export type SttStatus = 'idle' | 'live' | 'reconnecting' | 'error';
+
+export interface UsageSummary {
+  totalMinutes: number;
+  thisMonthMinutes: number;
+  lastMonthMinutes: number;
+}
 
 export type TranscriptMenuAction = 'copy-selected' | 'copy-all' | 'clear';
 
@@ -46,4 +54,6 @@ export interface RendererApi {
   onSettingsChanged: (listener: (settings: AppSettings) => void) => () => void;
   openSettings: () => void;
   showTranscriptMenu: (payload: TranscriptMenuPayload) => Promise<TranscriptMenuAction | null>;
+  getUsage: () => Promise<UsageSummary>;
+  onUsageChanged: (listener: (usage: UsageSummary) => void) => () => void;
 }

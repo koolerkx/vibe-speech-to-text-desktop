@@ -4,6 +4,7 @@ import {
   type RendererApi,
   type SttResult,
   type SttStatus,
+  type UsageSummary,
 } from '../shared/ipc-types.js';
 import type { AppSettings } from '../shared/settings.js';
 
@@ -33,6 +34,12 @@ const api: RendererApi = {
   },
   openSettings: () => ipcRenderer.send(IpcChannel.SettingsOpen),
   showTranscriptMenu: (payload) => ipcRenderer.invoke(IpcChannel.ShowTranscriptMenu, payload),
+  getUsage: () => ipcRenderer.invoke(IpcChannel.UsageGet),
+  onUsageChanged: (listener) => {
+    const handler = (_event: IpcRendererEvent, usage: UsageSummary) => listener(usage);
+    ipcRenderer.on(IpcChannel.UsageChanged, handler);
+    return () => ipcRenderer.removeListener(IpcChannel.UsageChanged, handler);
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);
