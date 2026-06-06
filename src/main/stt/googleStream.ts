@@ -3,7 +3,8 @@ import { app } from 'electron';
 import { protos, SpeechClient } from '@google-cloud/speech';
 import type { SttResult } from '../../shared/ipc-types.js';
 import { toBuffer } from '../audio/pcm.js';
-import { streamingConfig } from './streamingConfig.js';
+import { getSettings } from '../settings/store.js';
+import { buildStreamingConfig } from './streamingConfig.js';
 
 const KEY_FILENAME = 'key.json';
 
@@ -29,7 +30,7 @@ export function start(handlers: StreamHandlers): void {
     if (client === null) {
       client = new SpeechClient({ keyFilename: resolve(app.getAppPath(), KEY_FILENAME) });
     }
-    const opened = client.streamingRecognize(streamingConfig);
+    const opened = client.streamingRecognize(buildStreamingConfig(getSettings().model));
     stream = opened;
     opened
       .on('data', (response: StreamingResponse) => handleResponse(response, handlers.onResult))

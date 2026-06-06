@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { app, BrowserWindow, Menu, Tray, nativeImage } from 'electron';
+import { openSettingsWindow } from './settings/settingsWindow.js';
 
 const TRAY_TOOLTIP = 'Speech to Text';
 
@@ -18,6 +19,11 @@ export function createTray(window: BrowserWindow): Tray {
     {
       label: 'Hide',
       click: () => window.hide(),
+    },
+    { type: 'separator' },
+    {
+      label: 'Settings',
+      click: () => openSettingsWindow(),
     },
     { type: 'separator' },
     {

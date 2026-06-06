@@ -2,6 +2,7 @@ import { app, BrowserWindow, session, Tray } from 'electron';
 import { createFloatingWindow } from './window.js';
 import { createTray } from './tray.js';
 import { registerIpcHandlers } from './ipc.js';
+import { registerSettingsHandlers } from './settings/index.js';
 
 let floatingWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -36,6 +37,9 @@ if (!hasSingleInstanceLock) {
     session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
       callback(permission === 'media');
     });
+    // ipcMain.handle throws if registered twice; keep it out of bootstrap, which
+    // can re-run on 'activate'.
+    registerSettingsHandlers();
     bootstrap();
 
     app.on('activate', () => {

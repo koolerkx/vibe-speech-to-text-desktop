@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { SttStatus } from '../../shared/ipc-types';
+import { DEFAULT_SETTINGS } from '../../shared/settings';
 import { audioCapture, CaptureError } from './audio/capture';
 
 type CaptureStatus = 'idle' | 'listening' | 'error';
@@ -11,6 +12,9 @@ export function App() {
   const [interim, setInterim] = useState('');
   const [finalText, setFinalText] = useState('');
   const [sttStatus, setSttStatus] = useState<SttStatus>('idle');
+  const [backgroundOpacity, setBackgroundOpacity] = useState(
+    DEFAULT_SETTINGS.appearance.backgroundOpacity,
+  );
 
   useEffect(() => {
     const unsubscribeResult = window.api.onSttResult((result) => {
@@ -22,9 +26,16 @@ export function App() {
       }
     });
     const unsubscribeStatus = window.api.onSttStatus(setSttStatus);
+    void window.api
+      .getSettings()
+      .then((settings) => setBackgroundOpacity(settings.appearance.backgroundOpacity));
+    const unsubscribeSettings = window.api.onSettingsChanged((settings) =>
+      setBackgroundOpacity(settings.appearance.backgroundOpacity),
+    );
     return () => {
       unsubscribeResult();
       unsubscribeStatus();
+      unsubscribeSettings();
     };
   }, []);
 
@@ -54,10 +65,18 @@ export function App() {
   };
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden rounded-2xl border border-white/10 bg-[rgba(24,26,32,0.92)] text-gray-200">
-      <div className="flex items-center justify-between bg-white/[0.04] px-3 py-2 [-webkit-app-region:drag]">
+    <div className="flex h-screen w-screen flex-col overflow-hidden rounded-2xl border border-white/10 text-gray-200">
+      <div className="flex items-center justify-between bg-[rgb(31,33,40)] px-3 py-2 [-webkit-app-region:drag]">
         <span className="text-[13px] font-semibold">Speech to Text</span>
         <div className="flex gap-1.5 [-webkit-app-region:no-drag]">
+          <button
+            type="button"
+            className="h-[22px] w-[22px] rounded-md bg-white/10 text-sm leading-none hover:bg-white/20"
+            onClick={() => window.api.openSettings()}
+            aria-label="Settings"
+          >
+            ⚙
+          </button>
           <button
             type="button"
             className="h-[22px] w-[22px] rounded-md bg-white/10 text-sm leading-none hover:bg-white/20"
@@ -76,7 +95,10 @@ export function App() {
           </button>
         </div>
       </div>
-      <main className="flex flex-1 flex-col items-center justify-center gap-3">
+      <main
+        className="flex flex-1 flex-col items-center justify-center gap-3"
+        style={{ backgroundColor: `rgba(24, 26, 32, ${backgroundOpacity})` }}
+      >
         <p className="text-xl font-semibold">
           {status === 'listening' ? 'Listening' : status === 'error' ? 'Error' : 'Idle'}
         </p>
