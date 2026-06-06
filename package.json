@@ -1,0 +1,19 @@
+{
+  "name": "speech-to-text-desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "yarn@4.15.0",
+  "scripts": {
+    "stt:smoke": "tsx scripts/stt-smoke.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google-cloud/speech": "^6.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
