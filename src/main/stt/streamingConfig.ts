@@ -17,3 +17,16 @@ export const streamingConfig: protos.google.cloud.speech.v1.IStreamingRecognitio
   },
   interimResults: true,
 };
+
+// v1 streamingRecognize enforces a hard ~305s per-stream limit; the endpoint
+// terminates the stream past it, dropping any in-flight utterance. The
+// orchestrator rotates the stream before that. Derived here (next to the config
+// it applies to) so a future model / v2 with a different limit changes only this
+// single source, never the reconnect logic.
+export const streamLimits = {
+  // Soft limit: start cutting at the next silence boundary so rotation lands
+  // between utterances instead of mid-word.
+  softLimitMs: 240_000,
+  // Hard limit: force a cut even mid-speech; must stay below the endpoint limit.
+  hardLimitMs: 290_000,
+};

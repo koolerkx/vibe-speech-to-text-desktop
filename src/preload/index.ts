@@ -1,5 +1,10 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import { IpcChannel, type RendererApi, type SttResult } from '../shared/ipc-types.js';
+import {
+  IpcChannel,
+  type RendererApi,
+  type SttResult,
+  type SttStatus,
+} from '../shared/ipc-types.js';
 
 const api: RendererApi = {
   hideWindow: () => ipcRenderer.send(IpcChannel.WindowHide),
@@ -10,6 +15,11 @@ const api: RendererApi = {
     const handler = (_event: IpcRendererEvent, result: SttResult) => listener(result);
     ipcRenderer.on(IpcChannel.SttResult, handler);
     return () => ipcRenderer.removeListener(IpcChannel.SttResult, handler);
+  },
+  onSttStatus: (listener) => {
+    const handler = (_event: IpcRendererEvent, status: SttStatus) => listener(status);
+    ipcRenderer.on(IpcChannel.SttStatus, handler);
+    return () => ipcRenderer.removeListener(IpcChannel.SttStatus, handler);
   },
 };
 

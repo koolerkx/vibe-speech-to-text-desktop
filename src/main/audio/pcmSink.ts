@@ -1,6 +1,7 @@
 import { closeSync, openSync, writeSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { app } from 'electron';
+import { toBuffer } from './pcm.js';
 
 const SAMPLE_RATE = 16000;
 const CHANNELS = 1;
@@ -98,14 +99,4 @@ function writeWavHeader(fd: number, dataBytes: number): void {
   header.write('data', 36, 'ascii');
   header.writeUInt32LE(dataBytes, 40);
   writeSync(fd, header, 0, header.length, 0);
-}
-
-function toBuffer(chunk: ArrayBuffer | Uint8Array): Buffer {
-  if (Buffer.isBuffer(chunk)) {
-    return chunk;
-  }
-  if (chunk instanceof Uint8Array) {
-    return Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
-  }
-  return Buffer.from(chunk);
 }

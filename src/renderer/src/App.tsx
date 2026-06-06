@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { SttStatus } from '../../shared/ipc-types';
 import { audioCapture, CaptureError } from './audio/capture';
 
 type CaptureStatus = 'idle' | 'listening' | 'error';
@@ -9,9 +10,10 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [interim, setInterim] = useState('');
   const [finalText, setFinalText] = useState('');
+  const [sttStatus, setSttStatus] = useState<SttStatus>('idle');
 
   useEffect(() => {
-    return window.api.onSttResult((result) => {
+    const unsubscribeResult = window.api.onSttResult((result) => {
       if (result.isFinal) {
         setFinalText(result.transcript);
         setInterim('');
@@ -19,6 +21,11 @@ export function App() {
         setInterim(result.transcript);
       }
     });
+    const unsubscribeStatus = window.api.onSttStatus(setSttStatus);
+    return () => {
+      unsubscribeResult();
+      unsubscribeStatus();
+    };
   }, []);
 
   const toggleCapture = async () => {
@@ -34,6 +41,7 @@ export function App() {
         setErrorMessage(null);
         setInterim('');
         setFinalText('');
+        setSttStatus('idle');
         await audioCapture.start();
         setStatus('listening');
       }
@@ -80,6 +88,12 @@ export function App() {
         >
           {status === 'listening' ? 'Stop' : 'Listen'}
         </button>
+        {status === 'listening' && sttStatus === 'reconnecting' && (
+          <p className="px-4 text-center text-xs text-amber-400">Reconnecting…</p>
+        )}
+        {status === 'listening' && sttStatus === 'error' && (
+          <p className="px-4 text-center text-xs text-red-400">Connection lost</p>
+        )}
         {errorMessage && <p className="px-4 text-center text-xs text-red-400">{errorMessage}</p>}
         <div className="w-full px-4 text-center text-sm">
           {finalText && <p className="text-gray-100">{finalText}</p>}
