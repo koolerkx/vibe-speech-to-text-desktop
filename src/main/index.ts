@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray } from 'electron';
+import { app, BrowserWindow, session, Tray } from 'electron';
 import { createFloatingWindow } from './window.js';
 import { createTray } from './tray.js';
 import { registerIpcHandlers } from './ipc.js';
@@ -33,6 +33,9 @@ if (!hasSingleInstanceLock) {
   });
 
   app.whenReady().then(() => {
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+      callback(permission === 'media');
+    });
     bootstrap();
 
     app.on('activate', () => {
