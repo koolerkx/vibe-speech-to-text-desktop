@@ -9,6 +9,7 @@ import type { AppSettings } from '../shared/settings.js';
 
 const api: RendererApi = {
   hideWindow: () => ipcRenderer.send(IpcChannel.WindowHide),
+  setCollapsed: (collapsed) => ipcRenderer.send(IpcChannel.WindowSetCollapsed, collapsed),
   quitApp: () => ipcRenderer.send(IpcChannel.AppQuit),
   sendAudioChunk: (chunk) => ipcRenderer.send(IpcChannel.AudioChunk, chunk),
   setCaptureState: (active) => ipcRenderer.send(IpcChannel.AudioCaptureState, active),
@@ -31,6 +32,7 @@ const api: RendererApi = {
     return () => ipcRenderer.removeListener(IpcChannel.SettingsChanged, handler);
   },
   openSettings: () => ipcRenderer.send(IpcChannel.SettingsOpen),
+  showTranscriptMenu: (payload) => ipcRenderer.invoke(IpcChannel.ShowTranscriptMenu, payload),
 };
 
 contextBridge.exposeInMainWorld('api', api);

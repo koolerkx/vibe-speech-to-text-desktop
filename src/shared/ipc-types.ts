@@ -2,6 +2,7 @@ import type { AppSettings, SettingsPatch } from './settings.js';
 
 export const IpcChannel = {
   WindowHide: 'window:hide',
+  WindowSetCollapsed: 'window:set-collapsed',
   AppQuit: 'app:quit',
   AudioChunk: 'audio:chunk',
   AudioCaptureState: 'audio:capture-state',
@@ -12,6 +13,7 @@ export const IpcChannel = {
   SettingsReset: 'settings:reset',
   SettingsChanged: 'settings:changed',
   SettingsOpen: 'settings:open',
+  ShowTranscriptMenu: 'transcript:show-menu',
 } as const;
 
 export type IpcChannel = (typeof IpcChannel)[keyof typeof IpcChannel];
@@ -23,8 +25,16 @@ export interface SttResult {
 
 export type SttStatus = 'idle' | 'live' | 'reconnecting' | 'error';
 
+export type TranscriptMenuAction = 'copy-selected' | 'copy-all' | 'clear';
+
+export interface TranscriptMenuPayload {
+  selected: string;
+  all: string;
+}
+
 export interface RendererApi {
   hideWindow: () => void;
+  setCollapsed: (collapsed: boolean) => void;
   quitApp: () => void;
   sendAudioChunk: (chunk: ArrayBuffer) => void;
   setCaptureState: (active: boolean) => void;
@@ -35,4 +45,5 @@ export interface RendererApi {
   resetSettings: () => Promise<AppSettings>;
   onSettingsChanged: (listener: (settings: AppSettings) => void) => () => void;
   openSettings: () => void;
+  showTranscriptMenu: (payload: TranscriptMenuPayload) => Promise<TranscriptMenuAction | null>;
 }

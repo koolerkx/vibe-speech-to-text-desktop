@@ -1,11 +1,14 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { app } from 'electron';
 import { type AppSettings, DEFAULT_SETTINGS, type SettingsPatch } from '../../shared/settings.js';
 
 const SETTINGS_FILENAME = 'settings.json';
+const PERSIST_DEBOUNCE_MS = 300;
 
 let cached: AppSettings | null = null;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
 function settingsPath(): string {
   return resolve(app.getPath('userData'), SETTINGS_FILENAME);
@@ -29,12 +32,24 @@ function load(): AppSettings {
   }
 }
 
+// The renderer can fire updateSettings continuously (e.g. dragging the opacity
+// slider). The in-memory cache is the source of truth for reads, so coalesce the
+// disk write into a single trailing async write instead of blocking the main
+// thread on writeFileSync per event.
 function persist(): void {
-  try {
-    writeFileSync(settingsPath(), JSON.stringify(cached, null, 2), 'utf-8');
-  } catch (error) {
-    console.error('[settings] failed to persist:', error);
+  if (persistTimer !== null) {
+    clearTimeout(persistTimer);
   }
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    const snapshot = cached;
+    if (snapshot === null) {
+      return;
+    }
+    void writeFile(settingsPath(), JSON.stringify(snapshot, null, 2), 'utf-8').catch((error) => {
+      console.error('[settings] failed to persist:', error);
+    });
+  }, PERSIST_DEBOUNCE_MS);
 }
 
 export function getSettings(): AppSettings {

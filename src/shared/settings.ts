@@ -15,7 +15,16 @@ export const LANGUAGE_OPTIONS: SelectOption[] = [
   { id: 'yue-Hant-HK', label: '粵語 (yue-Hant-HK)' },
   { id: 'zh-TW', label: '國語 (zh-TW)' },
   { id: 'en-US', label: 'English (en-US)' },
+  { id: 'ja-JP', label: '日本語 (ja-JP)' },
 ];
+
+// Quick switcher subset surfaced on the main page; binds to the same
+// model.languageCode as the full LANGUAGE_OPTIONS in Settings. Derived from
+// LANGUAGE_OPTIONS (order follows the id list) so labels live in one place.
+const MAIN_LANGUAGE_IDS = ['en-US', 'yue-Hant-HK', 'ja-JP'];
+export const MAIN_LANGUAGE_OPTIONS: SelectOption[] = MAIN_LANGUAGE_IDS.flatMap((id) =>
+  LANGUAGE_OPTIONS.filter((option) => option.id === id),
+);
 
 // v2 is a UI/persistence mock until the real v2 transport lands; its models are
 // listed so the selection can be saved, but recognition still runs on v1.

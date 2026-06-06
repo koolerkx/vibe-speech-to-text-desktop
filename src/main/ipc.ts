@@ -3,9 +3,13 @@ import { IpcChannel } from '../shared/ipc-types.js';
 import { handleChunk, setCaptureState } from './audio/pcmSink.js';
 import * as stt from './stt/reconnect.js';
 import { inject, setActive } from './inject/textInject.js';
+import { setFloatingWindowCollapsed } from './window.js';
 
 export function registerIpcHandlers(window: BrowserWindow): void {
   ipcMain.on(IpcChannel.WindowHide, () => window.hide());
+  ipcMain.on(IpcChannel.WindowSetCollapsed, (_event, collapsed: boolean) =>
+    setFloatingWindowCollapsed(window, collapsed),
+  );
   ipcMain.on(IpcChannel.AppQuit, () => app.quit());
   ipcMain.on(IpcChannel.AudioChunk, (_event, chunk: ArrayBuffer | Uint8Array) => {
     handleChunk(chunk);

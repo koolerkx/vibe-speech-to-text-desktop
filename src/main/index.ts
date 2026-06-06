@@ -3,6 +3,7 @@ import { createFloatingWindow } from './window.js';
 import { createTray } from './tray.js';
 import { registerIpcHandlers } from './ipc.js';
 import { registerSettingsHandlers } from './settings/index.js';
+import { registerContextMenuHandlers } from './contextMenu.js';
 
 let floatingWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -40,6 +41,7 @@ if (!hasSingleInstanceLock) {
     // ipcMain.handle throws if registered twice; keep it out of bootstrap, which
     // can re-run on 'activate'.
     registerSettingsHandlers();
+    registerContextMenuHandlers();
     bootstrap();
 
     app.on('activate', () => {

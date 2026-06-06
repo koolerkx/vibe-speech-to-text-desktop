@@ -1,5 +1,5 @@
-import { resolve } from 'node:path';
-import { BrowserWindow, shell } from 'electron';
+import { BrowserWindow } from 'electron';
+import { attachExternalLinkHandler, loadRenderer, SHARED_WEB_PREFERENCES } from '../window.js';
 
 const SETTINGS_WINDOW_WIDTH = 440;
 const SETTINGS_WINDOW_HEIGHT = 580;
@@ -8,6 +8,9 @@ let settingsWindow: BrowserWindow | null = null;
 
 export function openSettingsWindow(): void {
   if (settingsWindow !== null && !settingsWindow.isDestroyed()) {
+    if (settingsWindow.isMinimized()) {
+      settingsWindow.restore();
+    }
     settingsWindow.show();
     settingsWindow.focus();
     return;
@@ -20,11 +23,7 @@ export function openSettingsWindow(): void {
     resizable: true,
     maximizable: false,
     show: false,
-    webPreferences: {
-      preload: resolve(import.meta.dirname, '../preload/index.js'),
-      sandbox: false,
-      contextIsolation: true,
-    },
+    webPreferences: SHARED_WEB_PREFERENCES,
   });
 
   settingsWindow.setMenuBarVisibility(false);
@@ -40,19 +39,6 @@ export function openSettingsWindow(): void {
     }
   });
 
-  settingsWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
-
-  loadSettingsRenderer(settingsWindow);
-}
-
-function loadSettingsRenderer(window: BrowserWindow): void {
-  const devServerUrl = process.env['ELECTRON_RENDERER_URL'];
-  if (devServerUrl) {
-    window.loadURL(`${devServerUrl}#settings`);
-  } else {
-    window.loadFile(resolve(import.meta.dirname, '../renderer/index.html'), { hash: 'settings' });
-  }
+  attachExternalLinkHandler(settingsWindow);
+  loadRenderer(settingsWindow, 'settings');
 }
