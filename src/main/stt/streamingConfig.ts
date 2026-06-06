@@ -21,6 +21,7 @@ export function buildStreamingConfig(
       sampleRateHertz: SAMPLE_RATE,
       languageCode: model.languageCode,
       enableAutomaticPunctuation: model.enableAutomaticPunctuation,
+      enableWordConfidence: true,
       model: model.apiVersion === 'v1' ? model.model : V1_FALLBACK_MODEL,
     },
     interimResults: true,

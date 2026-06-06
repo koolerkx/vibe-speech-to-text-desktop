@@ -20,9 +20,17 @@ export const IpcChannel = {
 
 export type IpcChannel = (typeof IpcChannel)[keyof typeof IpcChannel];
 
+export interface WordConfidence {
+  word: string;
+  confidence: number;
+}
+
 export interface SttResult {
   transcript: string;
   isFinal: boolean;
+  // Per-word confidence, populated only on a final result (interim results carry
+  // no confidence). Absent when the model returns no word-level data.
+  words?: WordConfidence[];
 }
 
 export type SttStatus = 'idle' | 'live' | 'reconnecting' | 'error';

@@ -91,13 +91,20 @@ export function stop(): void {
 
 function handleResponse(response: StreamingResponse, onResult: (result: SttResult) => void): void {
   const result = response.results?.[0];
-  const transcript = result?.alternatives?.[0]?.transcript;
-  if (!transcript) {
+  const alternative = result?.alternatives?.[0];
+  const transcript = alternative?.transcript;
+  if (!result || !alternative || !transcript) {
     return;
   }
   const isFinal = result.isFinal === true;
-  if (isFinal) {
-    console.log(`[googleStream] final: ${transcript}`);
+  if (!isFinal) {
+    onResult({ transcript, isFinal });
+    return;
   }
-  onResult({ transcript, isFinal });
+  console.log(`[googleStream] final: ${transcript}`);
+  const words = alternative.words?.map((word) => ({
+    word: word.word ?? '',
+    confidence: typeof word.confidence === 'number' ? word.confidence : 0,
+  }));
+  onResult({ transcript, isFinal, words });
 }

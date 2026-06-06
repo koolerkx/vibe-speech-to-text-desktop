@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { type MouseEvent, useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Circle, Mic, Minus, Settings, Square, X } from 'lucide-react';
-import type { SttStatus } from '../../shared/ipc-types';
+import type { SttStatus, WordConfidence } from '../../shared/ipc-types';
 import { DEFAULT_SETTINGS, MAIN_LANGUAGE_OPTIONS } from '../../shared/settings';
 import { audioCapture, CaptureError } from './audio/capture';
 import { Select } from './components/Select';
@@ -12,6 +12,52 @@ type CaptureStatus = 'idle' | 'listening' | 'error';
 interface CurrentText {
   text: string;
   isFinal: boolean;
+  words?: WordConfidence[];
+}
+
+// Viewport-anchored tooltip: position: fixed escapes the overflow-hidden
+// transcription block that would otherwise clip an absolutely-positioned child.
+interface WordTooltip {
+  text: string;
+  x: number;
+  y: number;
+}
+
+// Some models prefix each token with the SentencePiece word-boundary marker
+// (U+2581) to signal a preceding space; it must be stripped before display.
+const WORD_BOUNDARY_MARKER = '▁';
+
+function cleanWord(raw: string): string {
+  return raw.startsWith(WORD_BOUNDARY_MARKER) ? raw.slice(WORD_BOUNDARY_MARKER.length) : raw;
+}
+
+function isCjk(char: string): boolean {
+  return /[぀-ヿ㐀-鿿豈-﫿]/.test(char);
+}
+
+// CJK / kana characters set tight; otherwise honour the model's boundary marker
+// so Latin words split into sub-tokens (e.g. "st" + "ream") rejoin correctly.
+function separatorBetween(previousRaw: string, nextRaw: string): string {
+  const previous = cleanWord(previousRaw);
+  const next = cleanWord(nextRaw);
+  if (previous === '' || next === '') {
+    return '';
+  }
+  if (isCjk(previous.slice(-1)) || isCjk(next.slice(0, 1))) {
+    return '';
+  }
+  return nextRaw.startsWith(WORD_BOUNDARY_MARKER) ? ' ' : '';
+}
+
+// Lerp from red (low confidence) to white (high); high-confidence words read as
+// plain white, lower ones fade toward red. Below LOW_CONFIDENCE stays full red.
+const LOW_CONFIDENCE = 0.5;
+
+function confidenceColor(confidence: number): string {
+  const clamped = Math.max(0, Math.min(1, confidence));
+  const t = clamped <= LOW_CONFIDENCE ? 0 : (clamped - LOW_CONFIDENCE) / (1 - LOW_CONFIDENCE);
+  const channel = (low: number) => Math.round(low + (255 - low) * t);
+  return `rgb(${channel(248)}, ${channel(113)}, ${channel(113)})`;
 }
 
 const TOP_BAR_BUTTON =
@@ -52,13 +98,14 @@ export function App() {
   const [languageCode, setLanguageCode] = useState(DEFAULT_SETTINGS.model.languageCode);
   const [collapsed, setCollapsed] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [tooltip, setTooltip] = useState<WordTooltip | null>(null);
   const historyEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const unsubscribeResult = window.api.onSttResult((result) => {
       if (result.isFinal) {
         setHistory((prev) => [...prev, result.transcript]);
-        setCurrent({ text: result.transcript, isFinal: true });
+        setCurrent({ text: result.transcript, isFinal: true, words: result.words });
       } else {
         setCurrent({ text: result.transcript, isFinal: false });
       }
@@ -94,6 +141,12 @@ export function App() {
     return () => clearInterval(intervalId);
   }, [status]);
 
+  // A new confirmed line reuses span DOM nodes by index key, so a tooltip shown
+  // for the previous line's word never receives mouseleave; dismiss it on change.
+  useEffect(() => {
+    setTooltip(null);
+  }, [current]);
+
   const toggleCapture = async () => {
     if (busy) {
       return;
@@ -127,6 +180,15 @@ export function App() {
   const changeLanguage = (code: string) => {
     setLanguageCode(code);
     void window.api.updateSettings({ model: { languageCode: code } });
+  };
+
+  const showWordTooltip = (event: MouseEvent<HTMLSpanElement>, entry: WordConfidence) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setTooltip({
+      text: `${cleanWord(entry.word)}:${entry.confidence.toFixed(3)}`,
+      x: rect.left + rect.width / 2,
+      y: rect.top - 6,
+    });
   };
 
   const showTranscriptMenu = async () => {
@@ -247,12 +309,38 @@ export function App() {
               <div ref={historyEndRef} />
             </div>
             <div className="min-h-[3.25rem] shrink-0 cursor-text select-text border-t border-white/10 p-2">
-              <p className={current.isFinal ? 'text-gray-100' : 'text-gray-500 italic'}>
-                {current.text}
-              </p>
+              {current.isFinal && current.words && current.words.length > 0 ? (
+                <p className="text-gray-100">
+                  {current.words.map((entry, index) => (
+                    <span
+                      key={index}
+                      style={{ color: confidenceColor(entry.confidence) }}
+                      onMouseEnter={(event) => showWordTooltip(event, entry)}
+                      onMouseLeave={() => setTooltip(null)}
+                    >
+                      {index > 0
+                        ? separatorBetween(current.words![index - 1].word, entry.word)
+                        : ''}
+                      {cleanWord(entry.word)}
+                    </span>
+                  ))}
+                </p>
+              ) : (
+                <p className={current.isFinal ? 'text-gray-100' : 'text-gray-500 italic'}>
+                  {current.text}
+                </p>
+              )}
             </div>
           </div>
         </main>
+      )}
+      {tooltip && (
+        <div
+          className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-full rounded bg-black/90 px-1.5 py-0.5 font-mono text-xs whitespace-nowrap text-gray-100 shadow-lg"
+          style={{ left: tooltip.x, top: tooltip.y }}
+        >
+          {tooltip.text}
+        </div>
       )}
     </div>
   );
