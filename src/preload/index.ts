@@ -45,6 +45,9 @@ const api: RendererApi = {
     ipcRenderer.on(IpcChannel.UsageChanged, handler);
     return () => ipcRenderer.removeListener(IpcChannel.UsageChanged, handler);
   },
+  getCredentials: () => ipcRenderer.invoke(IpcChannel.CredentialsGet),
+  setCredentials: (credentials) => ipcRenderer.invoke(IpcChannel.CredentialsSet, credentials),
+  clearCredentials: () => ipcRenderer.invoke(IpcChannel.CredentialsClear),
 };
 
 contextBridge.exposeInMainWorld('api', api);

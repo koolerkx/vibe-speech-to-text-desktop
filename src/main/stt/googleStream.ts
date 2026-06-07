@@ -1,6 +1,6 @@
 import { getSettings } from '../settings/store.js';
-import { googleStreamV1 } from './googleStreamV1.js';
-import { googleStreamV2 } from './googleStreamV2.js';
+import { googleStreamV1, resetClient as resetV1Client } from './googleStreamV1.js';
+import { googleStreamV2, resetClient as resetV2Client } from './googleStreamV2.js';
 import type { SttTransport, StreamHandlers } from './transport.js';
 
 // Version-agnostic facade over the v1/v2 transports. reconnect.ts drives this
@@ -23,4 +23,11 @@ export function write(chunk: ArrayBuffer | Uint8Array): void {
 
 export function stop(): void {
   active?.stop();
+}
+
+// Forces both transports to rebuild their cached SpeechClient on the next start,
+// so updated credentials take effect without restarting the app.
+export function resetClients(): void {
+  resetV1Client();
+  resetV2Client();
 }

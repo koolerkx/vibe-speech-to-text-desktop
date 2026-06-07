@@ -1,4 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import {
+  type CredentialsStatus,
+  type GoogleCredentials,
+  parseServiceAccountJson,
+  validateCredentials,
+} from '../../shared/credentials';
 import type { UsageSummary } from '../../shared/ipc-types';
 import {
   type AppSettings,
@@ -27,7 +33,7 @@ import {
 } from '../../shared/settings';
 import { Select } from './components/Select';
 
-type SettingsTab = 'general' | 'wordBoost';
+type SettingsTab = 'general' | 'wordBoost' | 'auth';
 
 export function SettingsPage(): ReactNode {
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -78,6 +84,7 @@ export function SettingsPage(): ReactNode {
             active={tab === 'wordBoost'}
             onClick={() => setTab('wordBoost')}
           />
+          <TabButton label="Auth" active={tab === 'auth'} onClick={() => setTab('auth')} />
         </div>
 
         {tab === 'general' && (
@@ -210,6 +217,8 @@ export function SettingsPage(): ReactNode {
 
         {tab === 'wordBoost' && <WordBoostTab settings={settings} apply={apply} />}
 
+        {tab === 'auth' && <AuthTab />}
+
         <button
           type="button"
           className="self-start rounded-md bg-white/10 px-3 py-1.5 text-sm font-medium hover:bg-white/20"
@@ -303,6 +312,172 @@ function WordBoostTab({
           </p>
         </Field>
       ))}
+    </Section>
+  );
+}
+
+// Per-user Google service-account credentials. The private key is stored
+// encrypted by the main process and never returned here; an already-configured
+// key shows a placeholder and is kept when the field is left blank on save.
+function AuthTab(): ReactNode {
+  const emptyForm: GoogleCredentials = { projectId: '', clientEmail: '', privateKey: '' };
+  const [status, setStatus] = useState<CredentialsStatus | null>(null);
+  const [form, setForm] = useState<GoogleCredentials>(emptyForm);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const applyStatus = (next: CredentialsStatus): void => {
+    setStatus(next);
+    setForm({ projectId: next.projectId, clientEmail: next.clientEmail, privateKey: '' });
+  };
+
+  useEffect(() => {
+    void window.api.getCredentials().then(applyStatus);
+  }, []);
+
+  const patch = (part: Partial<GoogleCredentials>): void => {
+    setForm((prev) => ({ ...prev, ...part }));
+    setSaved(false);
+  };
+
+  const onUploadKeyFile = async (file: File): Promise<void> => {
+    setErrors([]);
+    setSaved(false);
+    try {
+      const parsed = parseServiceAccountJson(await file.text());
+      setForm(parsed);
+    } catch {
+      setErrors(['Could not parse the file. Select a valid service-account key.json.']);
+    }
+  };
+
+  const onSave = async (): Promise<void> => {
+    // Leaving the private key blank on an already-configured store keeps the
+    // stored key, so the missing-key error is filtered out in that case.
+    const keepingStoredKey = (status?.hasPrivateKey ?? false) && form.privateKey.trim().length === 0;
+    const found = validateCredentials(form).filter(
+      (message) => !(keepingStoredKey && message.toLowerCase().includes('private key')),
+    );
+    setErrors(found);
+    if (found.length > 0) {
+      return;
+    }
+    setBusy(true);
+    try {
+      applyStatus(await window.api.setCredentials(form));
+      setSaved(true);
+    } catch (error) {
+      setErrors([error instanceof Error ? error.message : 'Failed to save credentials.']);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onClear = async (): Promise<void> => {
+    setBusy(true);
+    setSaved(false);
+    setErrors([]);
+    try {
+      applyStatus(await window.api.clearCredentials());
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section title="Google credentials">
+      <p className="text-xs text-gray-500">
+        Speech-to-Text uses your own Google Cloud service account. Upload a key.json to fill the
+        fields automatically, or enter them manually. Credentials are stored
+        {status?.secure ? ' encrypted on this device' : ' on this device (encryption unavailable)'}.
+      </p>
+
+      <div className="flex items-center justify-between rounded-md bg-white/[0.04] px-3 py-2 text-sm">
+        <span className="text-gray-300">Status</span>
+        <span className={status?.configured ? 'text-green-400' : 'text-amber-400'}>
+          {status?.configured ? 'Configured' : 'Not configured'}
+        </span>
+      </div>
+
+      <label className="flex cursor-pointer flex-col gap-1.5 text-sm">
+        <span className="text-gray-300">Upload key.json</span>
+        <input
+          type="file"
+          accept=".json,application/json"
+          className="text-xs text-gray-400 file:mr-3 file:rounded-md file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-sm file:text-gray-100 hover:file:bg-white/20"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              void onUploadKeyFile(file);
+            }
+            event.target.value = '';
+          }}
+        />
+      </label>
+
+      <Field label="Project ID">
+        <input
+          type="text"
+          className="rounded-md border border-white/10 bg-gray-800 px-2 py-1.5 text-sm text-gray-100 outline-none focus:border-blue-500"
+          value={form.projectId}
+          onChange={(event) => patch({ projectId: event.target.value })}
+        />
+      </Field>
+
+      <Field label="Client email">
+        <input
+          type="text"
+          className="rounded-md border border-white/10 bg-gray-800 px-2 py-1.5 text-sm text-gray-100 outline-none focus:border-blue-500"
+          value={form.clientEmail}
+          onChange={(event) => patch({ clientEmail: event.target.value })}
+        />
+      </Field>
+
+      <Field label="Private key">
+        <textarea
+          rows={4}
+          className="resize-y rounded-md border border-white/10 bg-gray-800 px-2 py-1.5 font-mono text-xs text-gray-100 outline-none focus:border-blue-500"
+          placeholder={
+            status?.hasPrivateKey
+              ? 'Stored — leave blank to keep the current key'
+              : '-----BEGIN PRIVATE KEY-----'
+          }
+          value={form.privateKey}
+          onChange={(event) => patch({ privateKey: event.target.value })}
+        />
+      </Field>
+
+      {errors.length > 0 && (
+        <ul className="flex flex-col gap-1 rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-300">
+          {errors.map((message) => (
+            <li key={message}>{message}</li>
+          ))}
+        </ul>
+      )}
+
+      {saved && <p className="text-xs text-green-400">Credentials saved.</p>}
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium hover:bg-blue-500 disabled:opacity-50"
+          onClick={() => void onSave()}
+        >
+          Save
+        </button>
+        {status?.configured && (
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-md bg-white/10 px-3 py-1.5 text-sm font-medium hover:bg-white/20 disabled:opacity-50"
+            onClick={() => void onClear()}
+          >
+            Remove
+          </button>
+        )}
+      </div>
     </Section>
   );
 }

@@ -1,3 +1,4 @@
+import type { CredentialsStatus, GoogleCredentials } from './credentials.js';
 import type { AppSettings, SettingsPatch } from './settings.js';
 
 export const IpcChannel = {
@@ -17,6 +18,9 @@ export const IpcChannel = {
   ShowTranscriptMenu: 'transcript:show-menu',
   UsageGet: 'usage:get',
   UsageChanged: 'usage:changed',
+  CredentialsGet: 'credentials:get',
+  CredentialsSet: 'credentials:set',
+  CredentialsClear: 'credentials:clear',
 } as const;
 
 export type IpcChannel = (typeof IpcChannel)[keyof typeof IpcChannel];
@@ -70,4 +74,9 @@ export interface RendererApi {
   showTranscriptMenu: (payload: TranscriptMenuPayload) => Promise<TranscriptMenuAction | null>;
   getUsage: () => Promise<UsageSummary>;
   onUsageChanged: (listener: (usage: UsageSummary) => void) => () => void;
+  getCredentials: () => Promise<CredentialsStatus>;
+  // Rejects when the credentials fail boundary validation; the renderer surfaces
+  // the error message inline.
+  setCredentials: (credentials: GoogleCredentials) => Promise<CredentialsStatus>;
+  clearCredentials: () => Promise<CredentialsStatus>;
 }

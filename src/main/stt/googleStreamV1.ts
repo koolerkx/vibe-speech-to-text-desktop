@@ -1,15 +1,12 @@
-import { resolve } from 'node:path';
-import { app } from 'electron';
 import { protos, SpeechClient } from '@google-cloud/speech';
 import { wordBoostPhrases } from '../../shared/settings.js';
 import { toBuffer } from '../audio/pcm.js';
+import { loadCredentials } from '../credentials/store.js';
 import { getSettings } from '../settings/store.js';
 import { buildV1StreamingConfig } from './streamingConfig.js';
 import { forwardTranscript, type SttTransport, type StreamHandlers } from './transport.js';
 
 const LOG_LABEL = '[googleStreamV1]';
-
-const KEY_FILENAME = 'key.json';
 
 type StreamingResponse = protos.google.cloud.speech.v1.IStreamingRecognizeResponse;
 type RecognizeStream = ReturnType<SpeechClient['streamingRecognize']>;
@@ -17,16 +14,35 @@ type RecognizeStream = ReturnType<SpeechClient['streamingRecognize']>;
 let client: SpeechClient | null = null;
 let stream: RecognizeStream | null = null;
 
+function getClient(): SpeechClient {
+  if (client !== null) {
+    return client;
+  }
+  const credentials = loadCredentials();
+  if (credentials === null) {
+    throw new Error('Google credentials are not configured. Add them in Settings > Auth.');
+  }
+  client = new SpeechClient({
+    projectId: credentials.projectId,
+    credentials: { client_email: credentials.clientEmail, private_key: credentials.privateKey },
+  });
+  return client;
+}
+
+// Drops the cached client so the next start() rebuilds it with the latest stored
+// credentials (called when the user updates them in Settings).
+export function resetClient(): void {
+  client = null;
+}
+
 function start(handlers: StreamHandlers): void {
   if (stream !== null) {
     return;
   }
   try {
-    if (client === null) {
-      client = new SpeechClient({ keyFilename: resolve(app.getAppPath(), KEY_FILENAME) });
-    }
+    const activeClient = getClient();
     const settings = getSettings();
-    const opened = client.streamingRecognize(
+    const opened = activeClient.streamingRecognize(
       buildV1StreamingConfig(settings.model, wordBoostPhrases(settings.wordBoost)),
     );
     stream = opened;

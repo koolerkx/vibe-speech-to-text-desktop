@@ -1,14 +1,11 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { app } from 'electron';
 import { protos, v2 } from '@google-cloud/speech';
 import { type Location, wordBoostPhrases } from '../../shared/settings.js';
 import { toBuffer } from '../audio/pcm.js';
+import { loadCredentials } from '../credentials/store.js';
 import { getSettings } from '../settings/store.js';
 import { buildV2ConfigRequest } from './streamingConfig.js';
 import { forwardTranscript, type SttTransport, type StreamHandlers } from './transport.js';
 
-const KEY_FILENAME = 'key.json';
 const INLINE_RECOGNIZER = '_';
 const LOG_LABEL = '[googleStreamV2]';
 
@@ -23,17 +20,20 @@ let clientLocation: Location | null = null;
 let stream: RecognizeStream | null = null;
 let projectId: string | null = null;
 
-function keyFilePath(): string {
-  return resolve(app.getAppPath(), KEY_FILENAME);
+function requireCredentials(): { projectId: string; clientEmail: string; privateKey: string } {
+  const credentials = loadCredentials();
+  if (credentials === null) {
+    throw new Error('Google credentials are not configured. Add them in Settings > Auth.');
+  }
+  return credentials;
 }
 
-// Service-account keys carry the project id, so it resolves synchronously from
-// the same file used as keyFilename. This keeps start() synchronous, matching
-// the v1 transport and the synchronous open/isActive flow reconnect.ts expects.
+// The service-account project id, needed to build the recognizer path. Resolves
+// synchronously from the stored credentials, keeping start() synchronous (the
+// synchronous open/isActive flow reconnect.ts expects).
 function getProjectId(): string {
   if (projectId === null) {
-    const raw = readFileSync(keyFilePath(), 'utf-8');
-    projectId = (JSON.parse(raw) as { project_id?: string }).project_id ?? '';
+    projectId = requireCredentials().projectId;
   }
   return projectId;
 }
@@ -44,10 +44,23 @@ function getClient(location: Location): v2.SpeechClient {
   if (client !== null && clientLocation === location) {
     return client;
   }
+  const credentials = requireCredentials();
   const apiEndpoint = location === 'global' ? undefined : `${location}-speech.googleapis.com`;
-  client = new v2.SpeechClient({ keyFilename: keyFilePath(), apiEndpoint });
+  client = new v2.SpeechClient({
+    projectId: credentials.projectId,
+    credentials: { client_email: credentials.clientEmail, private_key: credentials.privateKey },
+    apiEndpoint,
+  });
   clientLocation = location;
   return client;
+}
+
+// Drops the cached client and resolved project id so the next start() rebuilds
+// them with the latest stored credentials (called when the user updates them).
+export function resetClient(): void {
+  client = null;
+  clientLocation = null;
+  projectId = null;
 }
 
 function start(handlers: StreamHandlers): void {
