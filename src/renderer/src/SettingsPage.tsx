@@ -1,14 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { UsageSummary } from '../../shared/ipc-types';
 import {
-  API_VERSION_OPTIONS,
-  type ApiVersion,
   type AppSettings,
   BACKGROUND_OPACITY_MAX,
   BACKGROUND_OPACITY_MIN,
   BACKGROUND_OPACITY_STEP,
-  LANGUAGE_OPTIONS,
-  modelsForApiVersion,
+  MODEL_PRESETS,
+  modelPatchFromPreset,
+  presetById,
+  presetIdForModel,
   VAD_CLOSE_HOLD_MS_MAX,
   VAD_CLOSE_HOLD_MS_MIN,
   VAD_CLOSE_HOLD_MS_STEP,
@@ -52,12 +52,15 @@ export function SettingsPage(): ReactNode {
     setSettings(await next);
   };
 
-  const onApiVersionChange = (apiVersion: ApiVersion): void => {
-    const model = modelsForApiVersion(apiVersion)[0]?.id ?? settings.model.model;
-    void apply(window.api.updateSettings({ model: { apiVersion, model } }));
+  // A preset bundles apiVersion + model + language + location into one choice;
+  // the fields are still stored separately in ModelSettings.
+  const onPresetChange = (id: string): void => {
+    const preset = presetById(id);
+    if (!preset) {
+      return;
+    }
+    void apply(window.api.updateSettings({ model: modelPatchFromPreset(preset) }));
   };
-
-  const models = modelsForApiVersion(settings.model.apiVersion);
 
   return (
     <div className="h-screen w-screen overflow-y-auto bg-gray-900 text-gray-200">
@@ -65,34 +68,11 @@ export function SettingsPage(): ReactNode {
         <h1 className="text-base font-semibold">Settings</h1>
 
         <Section title="Model">
-          <Field label="API version">
+          <Field label="Recognition (version_model_language)">
             <Select
-              value={settings.model.apiVersion}
-              onChange={(value) => onApiVersionChange(value as ApiVersion)}
-              options={API_VERSION_OPTIONS.map((option) => ({
-                id: option.id,
-                label: option.label,
-              }))}
-            />
-          </Field>
-
-          <Field label="Model">
-            <Select
-              value={settings.model.model}
-              onChange={(value) =>
-                void apply(window.api.updateSettings({ model: { model: value } }))
-              }
-              options={models}
-            />
-          </Field>
-
-          <Field label="Language">
-            <Select
-              value={settings.model.languageCode}
-              onChange={(value) =>
-                void apply(window.api.updateSettings({ model: { languageCode: value } }))
-              }
-              options={LANGUAGE_OPTIONS}
+              value={presetIdForModel(settings.model)}
+              onChange={onPresetChange}
+              options={MODEL_PRESETS}
             />
           </Field>
 

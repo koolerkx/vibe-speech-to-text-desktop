@@ -1,9 +1,12 @@
-import { type MouseEvent, useEffect, useRef, useState } from 'react';
+import { type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Circle, Mic, Minus, Settings, Square, X } from 'lucide-react';
-import type { SttStatus, WordConfidence } from '../../shared/ipc-types';
+import type { SttStatus, UsageSummary, WordConfidence } from '../../shared/ipc-types';
 import {
   DEFAULT_SETTINGS,
-  MAIN_LANGUAGE_OPTIONS,
+  MODEL_PRESETS,
+  modelPatchFromPreset,
+  presetById,
+  presetIdForModel,
   type VolumeMeterUnit,
 } from '../../shared/settings';
 import { audioCapture, CaptureError } from './audio/capture';
@@ -21,11 +24,17 @@ interface CurrentText {
 
 // Viewport-anchored tooltip: position: fixed escapes the overflow-hidden
 // transcription block that would otherwise clip an absolutely-positioned child.
+// Stores the anchor geometry; final placement is clamped to the window after the
+// tooltip's own size is measured, so it never spills past an edge.
 interface WordTooltip {
   text: string;
-  x: number;
-  y: number;
+  anchorCenterX: number;
+  anchorTop: number;
+  anchorBottom: number;
 }
+
+const TOOLTIP_MARGIN = 4;
+const TOOLTIP_GAP = 6;
 
 // Some models prefix each token with the SentencePiece word-boundary marker
 // (U+2581) to signal a preceding space; it must be stripped before display.
@@ -72,6 +81,15 @@ function formatElapsed(ms: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+// App-wide status colour convention: red = active/in progress, amber = paused,
+// gray = idle / not started.
+function timerColor(status: CaptureStatus, sttStatus: SttStatus): string {
+  if (status !== 'listening') {
+    return 'text-gray-400';
+  }
+  return sttStatus === 'live' ? 'text-red-400' : 'text-amber-400';
 }
 
 // The Listen button itself conveys the capture state, so its colour encodes the
@@ -155,7 +173,7 @@ export function App() {
   const [backgroundOpacity, setBackgroundOpacity] = useState(
     DEFAULT_SETTINGS.appearance.backgroundOpacity,
   );
-  const [languageCode, setLanguageCode] = useState(DEFAULT_SETTINGS.model.languageCode);
+  const [modelPresetId, setModelPresetId] = useState(presetIdForModel(DEFAULT_SETTINGS.model));
   const [volumeRms, setVolumeRms] = useState(0);
   const [volumeMeterUnit, setVolumeMeterUnit] = useState<VolumeMeterUnit>(
     DEFAULT_SETTINGS.appearance.volumeMeterUnit,
@@ -163,8 +181,13 @@ export function App() {
   const [vadThreshold, setVadThreshold] = useState(DEFAULT_SETTINGS.vad.silenceThreshold);
   const [collapsed, setCollapsed] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [tooltip, setTooltip] = useState<WordTooltip | null>(null);
   const historyEndRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  // Live time accumulated across stream segments; idle (dormant / reconnecting)
+  // gaps are excluded so the timer reflects billed duration only.
+  const liveAccumulatedRef = useRef(0);
 
   useEffect(() => {
     const unsubscribeResult = window.api.onSttResult((result) => {
@@ -179,7 +202,7 @@ export function App() {
     const unsubscribeLevel = window.api.onAudioLevel(setVolumeRms);
     const applySettings = (settings: Awaited<ReturnType<typeof window.api.getSettings>>) => {
       setBackgroundOpacity(settings.appearance.backgroundOpacity);
-      setLanguageCode(settings.model.languageCode);
+      setModelPresetId(presetIdForModel(settings.model));
       setVolumeMeterUnit(settings.appearance.volumeMeterUnit);
       setVadThreshold(settings.vad.silenceThreshold);
     };
@@ -194,25 +217,68 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    void window.api.getUsage().then(setUsage);
+    return window.api.onUsageChanged(setUsage);
+  }, []);
+
+  // The floating window is a single-purpose overlay; Tab focus traversal between
+  // its controls is not expected, so swallow Tab entirely.
+  useEffect(() => {
+    const swallowTab = (event: KeyboardEvent) => {
+      if (event.key === 'Tab') {
+        event.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', swallowTab);
+    return () => window.removeEventListener('keydown', swallowTab);
+  }, []);
+
+  useEffect(() => {
     historyEndRef.current?.scrollIntoView({ block: 'end' });
   }, [history]);
 
-  // Session timer: reset and tick while listening, freeze on stop.
+  // Session timer: accumulate only while the stream is live, so dormant /
+  // reconnecting / error gaps are excluded and the value tracks billed time.
   useEffect(() => {
-    if (status !== 'listening') {
+    if (status !== 'listening' || sttStatus !== 'live') {
       return;
     }
-    const startedAt = Date.now();
-    setElapsedMs(0);
-    const intervalId = setInterval(() => setElapsedMs(Date.now() - startedAt), 250);
-    return () => clearInterval(intervalId);
-  }, [status]);
+    const segmentStart = Date.now();
+    const intervalId = setInterval(
+      () => setElapsedMs(liveAccumulatedRef.current + (Date.now() - segmentStart)),
+      250,
+    );
+    return () => {
+      clearInterval(intervalId);
+      liveAccumulatedRef.current += Date.now() - segmentStart;
+      setElapsedMs(liveAccumulatedRef.current);
+    };
+  }, [status, sttStatus]);
 
   // A new confirmed line reuses span DOM nodes by index key, so a tooltip shown
   // for the previous line's word never receives mouseleave; dismiss it on change.
   useEffect(() => {
     setTooltip(null);
   }, [current]);
+
+  // Clamp the tooltip into the window once its size is known: keep it within the
+  // horizontal edges, and flip it below the anchor when there is no room above.
+  // useLayoutEffect positions it before paint so there is no visible jump.
+  useLayoutEffect(() => {
+    const element = tooltipRef.current;
+    if (!element || !tooltip) {
+      return;
+    }
+    const { width, height } = element.getBoundingClientRect();
+    const left = Math.max(
+      TOOLTIP_MARGIN,
+      Math.min(tooltip.anchorCenterX - width / 2, window.innerWidth - width - TOOLTIP_MARGIN),
+    );
+    const above = tooltip.anchorTop - TOOLTIP_GAP - height;
+    const top = above >= TOOLTIP_MARGIN ? above : tooltip.anchorBottom + TOOLTIP_GAP;
+    element.style.left = `${left}px`;
+    element.style.top = `${top}px`;
+  }, [tooltip]);
 
   const toggleCapture = async () => {
     if (busy) {
@@ -229,6 +295,8 @@ export function App() {
         setCurrent({ text: '', isFinal: false });
         setSttStatus('idle');
         setVolumeRms(0);
+        liveAccumulatedRef.current = 0;
+        setElapsedMs(0);
         await audioCapture.start();
         setStatus('listening');
       }
@@ -246,18 +314,27 @@ export function App() {
     window.api.setCollapsed(next);
   };
 
-  const changeLanguage = (code: string) => {
-    setLanguageCode(code);
-    void window.api.updateSettings({ model: { languageCode: code } });
+  const changeModelPreset = (id: string) => {
+    const preset = presetById(id);
+    if (!preset) {
+      return;
+    }
+    setModelPresetId(id);
+    void window.api.updateSettings({ model: modelPatchFromPreset(preset) });
+  };
+
+  const showTooltipAt = (event: MouseEvent<HTMLElement>, text: string) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setTooltip({
+      text,
+      anchorCenterX: rect.left + rect.width / 2,
+      anchorTop: rect.top,
+      anchorBottom: rect.bottom,
+    });
   };
 
   const showWordTooltip = (event: MouseEvent<HTMLSpanElement>, entry: WordConfidence) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    setTooltip({
-      text: `${cleanWord(entry.word)}:${entry.confidence.toFixed(3)}`,
-      x: rect.left + rect.width / 2,
-      y: rect.top - 6,
-    });
+    showTooltipAt(event, `${cleanWord(entry.word)}:${entry.confidence.toFixed(3)}`);
   };
 
   const showTranscriptMenu = async () => {
@@ -331,7 +408,7 @@ export function App() {
       </div>
       {!collapsed && (
         <main
-          className="flex flex-1 flex-col gap-3 p-3"
+          className="flex min-h-0 flex-1 flex-col gap-3 p-3"
           style={{ backgroundColor: `rgba(24, 26, 32, ${backgroundOpacity})` }}
         >
           <div className="flex items-center gap-3">
@@ -348,11 +425,13 @@ export function App() {
                 <Circle size={24} className={iconColor} fill="currentColor" />
               )}
             </button>
-            <Select value={languageCode} onChange={changeLanguage} options={MAIN_LANGUAGE_OPTIONS} />
+            <Select value={modelPresetId} onChange={changeModelPreset} options={MODEL_PRESETS} />
             <span
-              className={`ml-auto font-mono text-sm tabular-nums ${
-                listening ? 'text-red-400' : 'text-gray-400'
-              }`}
+              onMouseEnter={(event) =>
+                showTooltipAt(event, `This month: ${usage?.thisMonthMinutes ?? 0} min`)
+              }
+              onMouseLeave={() => setTooltip(null)}
+              className={`ml-auto font-mono text-sm tabular-nums ${timerColor(status, sttStatus)}`}
             >
               {formatElapsed(elapsedMs)}
             </span>
@@ -360,13 +439,13 @@ export function App() {
           {listening && <VolumeMeter rms={volumeRms} threshold={vadThreshold} unit={volumeMeterUnit} />}
           {errorMessage && <p className="text-xs text-red-400">{errorMessage}</p>}
           <div
-            className="flex flex-1 flex-col overflow-hidden rounded-lg bg-black/20 text-sm selection:bg-blue-500/40"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-black/20 text-sm selection:bg-blue-500/40"
             onContextMenu={(event) => {
               event.preventDefault();
               void showTranscriptMenu();
             }}
           >
-            <div className="flex-1 cursor-text select-text overflow-y-auto p-2">
+            <div className="min-h-0 flex-1 cursor-text select-text overflow-y-auto p-2">
               {history.length === 0 ? (
                 <p className="text-gray-500 italic">No transcription yet</p>
               ) : (
@@ -406,8 +485,8 @@ export function App() {
       )}
       {tooltip && (
         <div
-          className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-full rounded bg-black/90 px-1.5 py-0.5 font-mono text-xs whitespace-nowrap text-gray-100 shadow-lg"
-          style={{ left: tooltip.x, top: tooltip.y }}
+          ref={tooltipRef}
+          className="pointer-events-none fixed z-50 rounded bg-black/90 px-1.5 py-0.5 font-mono text-xs whitespace-nowrap text-gray-100 shadow-lg"
         >
           {tooltip.text}
         </div>

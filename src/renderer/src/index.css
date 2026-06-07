@@ -10,6 +10,6 @@
   body {
     background: transparent;
     user-select: none;
-    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-family: 'Noto Sans HK', 'Noto Sans JP', 'Segoe UI', system-ui, sans-serif;
   }
 }

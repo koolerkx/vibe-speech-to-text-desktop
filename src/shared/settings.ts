@@ -3,59 +3,118 @@ export type ApiVersion = 'v1' | 'v2';
 export interface SelectOption {
   id: string;
   label: string;
+  // When true the option renders but cannot be picked (used to show an invalid
+  // combination, e.g. v2 while the language is Cantonese, rather than hiding it).
+  disabled?: boolean;
 }
 
-export interface ApiVersionOption {
-  id: ApiVersion;
-  label: string;
-  models: SelectOption[];
+// v2 binds a recognizer to a location. long runs on the global endpoint; chirp_3
+// is a multi-region model served from the us / eu endpoints only.
+export type Location = 'global' | 'us' | 'eu';
+
+export const LOCATION_OPTIONS: SelectOption[] = [
+  { id: 'global', label: 'global' },
+  { id: 'us', label: 'us' },
+  { id: 'eu', label: 'eu' },
+];
+
+// Locations each v2 model is served from (per the supported-languages docs).
+const V2_MODEL_LOCATIONS: Record<string, Location[]> = {
+  long: ['global'],
+  chirp_3: ['us', 'eu'],
+};
+
+export function locationsForModel(model: string): Location[] {
+  return V2_MODEL_LOCATIONS[model] ?? ['global'];
 }
 
-export const LANGUAGE_OPTIONS: SelectOption[] = [
-  { id: 'yue-Hant-HK', label: '粵語 (yue-Hant-HK)' },
-  { id: 'zh-TW', label: '國語 (zh-TW)' },
-  { id: 'en-US', label: 'English (en-US)' },
-  { id: 'ja-JP', label: '日本語 (ja-JP)' },
+// v2 models that reject enableWordConfidence (chirp_3 returns placeholder, not
+// real, confidence and errors if the flag is sent), so it must be omitted.
+const MODELS_WITHOUT_WORD_CONFIDENCE = ['chirp_3'];
+
+export function supportsWordConfidence(model: string): boolean {
+  return !MODELS_WITHOUT_WORD_CONFIDENCE.includes(model);
+}
+
+// One recognition preset = a valid (apiVersion, model, language) combination
+// surfaced as a single dropdown entry. Each language detects only one language at
+// a time, so language is folded into the preset; location is derived from the
+// model. Cantonese is v1-only; en-US / ja-JP also offer v2 long and chirp_3.
+export interface ModelPreset extends SelectOption {
+  apiVersion: ApiVersion;
+  model: string;
+  languageCode: string;
+  location: Location;
+}
+
+// Single source of truth for the supported combinations. Mandarin / Simplified
+// Chinese is intentionally out of scope.
+const MODEL_PRESET_COMBOS: Array<Pick<ModelPreset, 'apiVersion' | 'model' | 'languageCode'>> = [
+  { apiVersion: 'v1', model: 'latest_long', languageCode: 'yue-Hant-HK' },
+  { apiVersion: 'v1', model: 'latest_long', languageCode: 'en-US' },
+  { apiVersion: 'v2', model: 'long', languageCode: 'en-US' },
+  { apiVersion: 'v2', model: 'chirp_3', languageCode: 'en-US' },
+  { apiVersion: 'v1', model: 'latest_long', languageCode: 'ja-JP' },
+  { apiVersion: 'v2', model: 'long', languageCode: 'ja-JP' },
+  { apiVersion: 'v2', model: 'chirp_3', languageCode: 'ja-JP' },
 ];
 
-// Quick switcher subset surfaced on the main page; binds to the same
-// model.languageCode as the full LANGUAGE_OPTIONS in Settings. Derived from
-// LANGUAGE_OPTIONS (order follows the id list) so labels live in one place.
-const MAIN_LANGUAGE_IDS = ['en-US', 'yue-Hant-HK', 'ja-JP'];
-export const MAIN_LANGUAGE_OPTIONS: SelectOption[] = MAIN_LANGUAGE_IDS.flatMap((id) =>
-  LANGUAGE_OPTIONS.filter((option) => option.id === id),
-);
+// Stable preset id, derived from the combination's identity fields so the map
+// below and presetIdForModel never drift on the format.
+function presetId(parts: { apiVersion: ApiVersion; model: string; languageCode: string }): string {
+  return `${parts.apiVersion}_${parts.model}_${parts.languageCode}`;
+}
 
-// v2 is a UI/persistence mock until the real v2 transport lands; its models are
-// listed so the selection can be saved, but recognition still runs on v1.
-export const API_VERSION_OPTIONS: ApiVersionOption[] = [
-  {
-    id: 'v1',
-    label: 'Speech-to-Text v1',
-    models: [
-      { id: 'latest_long', label: 'latest_long' },
-      { id: 'latest_short', label: 'latest_short' },
-      { id: 'default', label: 'default' },
-      { id: 'command_and_search', label: 'command_and_search' },
-    ],
-  },
-  {
-    id: 'v2',
-    label: 'Speech-to-Text v2 (mock)',
-    models: [
-      { id: 'long', label: 'long' },
-      { id: 'short', label: 'short' },
-      { id: 'chirp', label: 'chirp' },
-      { id: 'chirp_2', label: 'chirp_2' },
-    ],
-  },
-];
+export const MODEL_PRESETS: ModelPreset[] = MODEL_PRESET_COMBOS.map((combo) => {
+  const id = presetId(combo);
+  return { ...combo, id, label: id, location: locationsForModel(combo.model)[0] };
+});
+
+export function presetIdForModel(model: ModelSettings): string {
+  return presetId(model);
+}
+
+export function presetById(id: string): ModelPreset | undefined {
+  return MODEL_PRESETS.find((preset) => preset.id === id);
+}
+
+// The model fields a preset sets; shared by the main page and Settings so both
+// apply a preset selection identically.
+export function modelPatchFromPreset(preset: ModelPreset): Partial<ModelSettings> {
+  return {
+    apiVersion: preset.apiVersion,
+    model: preset.model,
+    languageCode: preset.languageCode,
+    location: preset.location,
+  };
+}
 
 export interface ModelSettings {
   apiVersion: ApiVersion;
   model: string;
+  // Only applies to v2; v1 always runs on the global endpoint and ignores this.
+  location: Location;
   languageCode: string;
   enableAutomaticPunctuation: boolean;
+}
+
+// Snaps any stored model onto a valid preset (Settings offers only presets),
+// keeping the language when a preset covers it and preserving the automatic
+// punctuation choice. Applied centrally in the store so an upgraded settings.json
+// — e.g. a now-removed language (zh-TW) or a v1 model no longer offered — never
+// leaves the preset dropdown blank or the transport on an unsupported combo.
+export function reconcileModel(model: ModelSettings): ModelSettings {
+  const preset =
+    presetById(presetIdForModel(model)) ??
+    MODEL_PRESETS.find((option) => option.languageCode === model.languageCode) ??
+    MODEL_PRESETS[0];
+  return {
+    ...model,
+    apiVersion: preset.apiVersion,
+    model: preset.model,
+    languageCode: preset.languageCode,
+    location: preset.location,
+  };
 }
 
 // Main-page volume meter scale. 'linear' shows raw RMS amplitude; 'db' shows the
@@ -124,6 +183,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   model: {
     apiVersion: 'v1',
     model: 'latest_long',
+    location: 'global',
     languageCode: 'yue-Hant-HK',
     enableAutomaticPunctuation: true,
   },
@@ -139,7 +199,3 @@ export const DEFAULT_SETTINGS: AppSettings = {
     prerollMs: 400,
   },
 };
-
-export function modelsForApiVersion(apiVersion: ApiVersion): SelectOption[] {
-  return API_VERSION_OPTIONS.find((option) => option.id === apiVersion)?.models ?? [];
-}

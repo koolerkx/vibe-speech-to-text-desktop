@@ -17,7 +17,7 @@ export function Select({
       onChange={(event) => onChange(event.target.value)}
     >
       {options.map((option) => (
-        <option key={option.id} value={option.id}>
+        <option key={option.id} value={option.id} disabled={option.disabled}>
           {option.label}
         </option>
       ))}

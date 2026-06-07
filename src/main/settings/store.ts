@@ -2,7 +2,12 @@ import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { app } from 'electron';
-import { type AppSettings, DEFAULT_SETTINGS, type SettingsPatch } from '../../shared/settings.js';
+import {
+  type AppSettings,
+  DEFAULT_SETTINGS,
+  reconcileModel,
+  type SettingsPatch,
+} from '../../shared/settings.js';
 
 const SETTINGS_FILENAME = 'settings.json';
 const PERSIST_DEBOUNCE_MS = 300;
@@ -18,7 +23,7 @@ function settingsPath(): string {
 // (missing newly added keys) still yields a complete, valid settings object.
 function mergeWithDefaults(partial: Partial<AppSettings> | null): AppSettings {
   return {
-    model: { ...DEFAULT_SETTINGS.model, ...partial?.model },
+    model: reconcileModel({ ...DEFAULT_SETTINGS.model, ...partial?.model }),
     appearance: { ...DEFAULT_SETTINGS.appearance, ...partial?.appearance },
     vad: { ...DEFAULT_SETTINGS.vad, ...partial?.vad },
   };
@@ -63,7 +68,7 @@ export function getSettings(): AppSettings {
 export function updateSettings(patch: SettingsPatch): AppSettings {
   const current = getSettings();
   cached = {
-    model: { ...current.model, ...patch.model },
+    model: reconcileModel({ ...current.model, ...patch.model }),
     appearance: { ...current.appearance, ...patch.appearance },
     vad: { ...current.vad, ...patch.vad },
   };

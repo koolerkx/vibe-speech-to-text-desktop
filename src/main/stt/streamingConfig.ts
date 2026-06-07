@@ -1,41 +1,74 @@
 import { protos } from '@google-cloud/speech';
-import { DEFAULT_SETTINGS, type ModelSettings } from '../../shared/settings.js';
+import { DEFAULT_SETTINGS, type ModelSettings, supportsWordConfidence } from '../../shared/settings.js';
 
-const { AudioEncoding } = protos.google.cloud.speech.v1.RecognitionConfig;
+const { AudioEncoding: V1AudioEncoding } = protos.google.cloud.speech.v1.RecognitionConfig;
+const { AudioEncoding: V2AudioEncoding } = protos.google.cloud.speech.v2.ExplicitDecodingConfig;
 
 export const SAMPLE_RATE = 16000;
 
-// v2 is a UI/persistence mock; the transport is always v1, so a v2 model
-// selection falls back to this v1 model until the real v2 transport lands.
-const V1_FALLBACK_MODEL = 'latest_long';
+const MONO_CHANNEL_COUNT = 1;
 
-// Builds the streaming config from the user's model settings. Keeping it next to
-// the constants it applies lets a future model / v2 with a different shape change
-// only this single source, never the reconnect logic.
-export function buildStreamingConfig(
+// Builds the v1 streaming config from the user's model settings. Keeping it next
+// to the constants it applies lets a model change touch only this single source,
+// never the reconnect logic.
+export function buildV1StreamingConfig(
   model: ModelSettings,
 ): protos.google.cloud.speech.v1.IStreamingRecognitionConfig {
   return {
     config: {
-      encoding: AudioEncoding.LINEAR16,
+      encoding: V1AudioEncoding.LINEAR16,
       sampleRateHertz: SAMPLE_RATE,
       languageCode: model.languageCode,
       enableAutomaticPunctuation: model.enableAutomaticPunctuation,
       enableWordConfidence: true,
-      model: model.apiVersion === 'v1' ? model.model : V1_FALLBACK_MODEL,
+      model: model.model,
     },
     interimResults: true,
   };
 }
 
+// Builds the first request of a v2 streaming session, which carries the config;
+// subsequent requests carry audio. v2 differs from v1: language is an array,
+// feature flags live under `features`, interimResults lives under
+// `streamingFeatures`, and raw PCM requires an explicit decoding config because
+// the byte stream has no header.
+export function buildV2ConfigRequest(
+  model: ModelSettings,
+  recognizerPath: string,
+): protos.google.cloud.speech.v2.IStreamingRecognizeRequest {
+  return {
+    recognizer: recognizerPath,
+    streamingConfig: {
+      config: {
+        explicitDecodingConfig: {
+          encoding: V2AudioEncoding.LINEAR16,
+          sampleRateHertz: SAMPLE_RATE,
+          audioChannelCount: MONO_CHANNEL_COUNT,
+        },
+        model: model.model,
+        languageCodes: [model.languageCode],
+        features: {
+          enableAutomaticPunctuation: model.enableAutomaticPunctuation,
+          // Omitted for models that reject it (e.g. chirp_3); v2 hard-errors on
+          // unsupported feature flags rather than ignoring them.
+          ...(supportsWordConfidence(model.model) ? { enableWordConfidence: true } : {}),
+        },
+      },
+      streamingFeatures: {
+        interimResults: true,
+      },
+    },
+  };
+}
+
 // Default config used by scripts/stt-smoke.ts so the smoke test keeps validating
 // the exact shape the app ships with out of the box.
-export const streamingConfig = buildStreamingConfig(DEFAULT_SETTINGS.model);
+export const streamingConfig = buildV1StreamingConfig(DEFAULT_SETTINGS.model);
 
-// v1 streamingRecognize enforces a hard ~305s per-stream limit; the endpoint
-// terminates the stream past it, dropping any in-flight utterance. The
+// Both v1 and v2 streamingRecognize enforce a hard ~305s per-stream limit; the
+// endpoint terminates the stream past it, dropping any in-flight utterance. The
 // orchestrator rotates the stream before that. Derived here (next to the config
-// it applies to) so a future model / v2 with a different limit changes only this
+// it applies to) so a future model with a different limit changes only this
 // single source, never the reconnect logic.
 export const streamLimits = {
   // Soft limit: start cutting at the next silence boundary so rotation lands
