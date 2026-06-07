@@ -142,16 +142,60 @@ export interface VadSettings {
   prerollMs: number;
 }
 
+// Fixed boost levels offered in the Word boost tab. Higher boost more strongly
+// biases recognition toward the listed phrases (practical API maximum is 20).
+export const WORD_BOOST_LEVELS = [5, 10, 15, 20] as const;
+export type WordBoostLevel = (typeof WORD_BOOST_LEVELS)[number];
+
+export interface WordBoostSettings {
+  // Single switch to apply or ignore every phrase across all boost levels.
+  enabled: boolean;
+  // Raw, comma-separated user input per boost level. Stored verbatim so the text
+  // field round-trips exactly; parsing into phrases happens in wordBoostPhrases.
+  phrasesByBoost: Record<`${WordBoostLevel}`, string>;
+}
+
+// One adaptation phrase with its boost, ready for the v1/v2 streaming config.
+export interface BoostPhrase {
+  value: string;
+  boost: number;
+}
+
+// Flattens the per-level raw strings into deduped phrases for the API. Splits on
+// commas (trimming surrounding whitespace), drops blanks, and keeps the first
+// boost seen for a duplicate value. Returns [] when disabled so callers can omit
+// the adaptation field entirely.
+export function wordBoostPhrases(settings: WordBoostSettings): BoostPhrase[] {
+  if (!settings.enabled) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const phrases: BoostPhrase[] = [];
+  for (const level of WORD_BOOST_LEVELS) {
+    for (const value of settings.phrasesByBoost[`${level}`].split(/\s*,\s*/)) {
+      const trimmed = value.trim();
+      if (trimmed.length === 0 || seen.has(trimmed)) {
+        continue;
+      }
+      seen.add(trimmed);
+      phrases.push({ value: trimmed, boost: level });
+    }
+  }
+  return phrases;
+}
+
 export interface AppSettings {
   model: ModelSettings;
   appearance: AppearanceSettings;
   vad: VadSettings;
+  wordBoost: WordBoostSettings;
 }
 
 export interface SettingsPatch {
   model?: Partial<ModelSettings>;
   appearance?: Partial<AppearanceSettings>;
   vad?: Partial<VadSettings>;
+  wordBoost?: Partial<WordBoostSettings>;
 }
 
 export const BACKGROUND_OPACITY_MIN = 0.3;
@@ -197,5 +241,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     closeHoldMs: 3000,
     reopenVoicedChunks: 2,
     prerollMs: 400,
+  },
+  wordBoost: {
+    enabled: false,
+    phrasesByBoost: { '5': '', '10': '', '15': '', '20': '' },
   },
 };

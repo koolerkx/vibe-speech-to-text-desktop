@@ -26,6 +26,14 @@ function mergeWithDefaults(partial: Partial<AppSettings> | null): AppSettings {
     model: reconcileModel({ ...DEFAULT_SETTINGS.model, ...partial?.model }),
     appearance: { ...DEFAULT_SETTINGS.appearance, ...partial?.appearance },
     vad: { ...DEFAULT_SETTINGS.vad, ...partial?.vad },
+    wordBoost: {
+      ...DEFAULT_SETTINGS.wordBoost,
+      ...partial?.wordBoost,
+      phrasesByBoost: {
+        ...DEFAULT_SETTINGS.wordBoost.phrasesByBoost,
+        ...partial?.wordBoost?.phrasesByBoost,
+      },
+    },
   };
 }
 
@@ -71,6 +79,14 @@ export function updateSettings(patch: SettingsPatch): AppSettings {
     model: reconcileModel({ ...current.model, ...patch.model }),
     appearance: { ...current.appearance, ...patch.appearance },
     vad: { ...current.vad, ...patch.vad },
+    wordBoost: {
+      ...current.wordBoost,
+      ...patch.wordBoost,
+      phrasesByBoost: {
+        ...current.wordBoost.phrasesByBoost,
+        ...patch.wordBoost?.phrasesByBoost,
+      },
+    },
   };
   persist();
   return cached;

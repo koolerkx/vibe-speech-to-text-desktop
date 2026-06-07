@@ -1,5 +1,11 @@
 import { protos } from '@google-cloud/speech';
-import { DEFAULT_SETTINGS, type ModelSettings, supportsWordConfidence } from '../../shared/settings.js';
+import {
+  type BoostPhrase,
+  DEFAULT_SETTINGS,
+  type ModelSettings,
+  supportsWordConfidence,
+  wordBoostPhrases,
+} from '../../shared/settings.js';
 
 const { AudioEncoding: V1AudioEncoding } = protos.google.cloud.speech.v1.RecognitionConfig;
 const { AudioEncoding: V2AudioEncoding } = protos.google.cloud.speech.v2.ExplicitDecodingConfig;
@@ -13,6 +19,7 @@ const MONO_CHANNEL_COUNT = 1;
 // never the reconnect logic.
 export function buildV1StreamingConfig(
   model: ModelSettings,
+  phrases: BoostPhrase[],
 ): protos.google.cloud.speech.v1.IStreamingRecognitionConfig {
   return {
     config: {
@@ -22,6 +29,8 @@ export function buildV1StreamingConfig(
       enableAutomaticPunctuation: model.enableAutomaticPunctuation,
       enableWordConfidence: true,
       model: model.model,
+      // Omitted when empty so a disabled / blank Word boost sends no adaptation.
+      ...(phrases.length > 0 ? { adaptation: { phraseSets: [{ phrases }] } } : {}),
     },
     interimResults: true,
   };
@@ -35,6 +44,7 @@ export function buildV1StreamingConfig(
 export function buildV2ConfigRequest(
   model: ModelSettings,
   recognizerPath: string,
+  phrases: BoostPhrase[],
 ): protos.google.cloud.speech.v2.IStreamingRecognizeRequest {
   return {
     recognizer: recognizerPath,
@@ -53,6 +63,10 @@ export function buildV2ConfigRequest(
           // unsupported feature flags rather than ignoring them.
           ...(supportsWordConfidence(model.model) ? { enableWordConfidence: true } : {}),
         },
+        // Omitted when empty so a disabled / blank Word boost sends no adaptation.
+        ...(phrases.length > 0
+          ? { adaptation: { phraseSets: [{ inlinePhraseSet: { phrases } }] } }
+          : {}),
       },
       streamingFeatures: {
         interimResults: true,
@@ -63,7 +77,10 @@ export function buildV2ConfigRequest(
 
 // Default config used by scripts/stt-smoke.ts so the smoke test keeps validating
 // the exact shape the app ships with out of the box.
-export const streamingConfig = buildV1StreamingConfig(DEFAULT_SETTINGS.model);
+export const streamingConfig = buildV1StreamingConfig(
+  DEFAULT_SETTINGS.model,
+  wordBoostPhrases(DEFAULT_SETTINGS.wordBoost),
+);
 
 // Both v1 and v2 streamingRecognize enforce a hard ~305s per-stream limit; the
 // endpoint terminates the stream past it, dropping any in-flight utterance. The

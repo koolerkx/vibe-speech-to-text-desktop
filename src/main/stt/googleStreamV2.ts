@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { app } from 'electron';
 import { protos, v2 } from '@google-cloud/speech';
-import type { Location } from '../../shared/settings.js';
+import { type Location, wordBoostPhrases } from '../../shared/settings.js';
 import { toBuffer } from '../audio/pcm.js';
 import { getSettings } from '../settings/store.js';
 import { buildV2ConfigRequest } from './streamingConfig.js';
@@ -55,7 +55,7 @@ function start(handlers: StreamHandlers): void {
     return;
   }
   try {
-    const { model } = getSettings();
+    const { model, wordBoost } = getSettings();
     const activeClient = getClient(model.location);
     const recognizerPath = activeClient.recognizerPath(
       getProjectId(),
@@ -81,7 +81,7 @@ function start(handlers: StreamHandlers): void {
       });
     // v2 carries the config in the first request, then audio in every following
     // request; the v1 builder shape is inverted here.
-    opened.write(buildV2ConfigRequest(model, recognizerPath));
+    opened.write(buildV2ConfigRequest(model, recognizerPath, wordBoostPhrases(wordBoost)));
   } catch (error) {
     console.error(`${LOG_LABEL} failed to start stream:`, error);
     stream = null;

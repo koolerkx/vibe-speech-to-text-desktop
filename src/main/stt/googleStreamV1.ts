@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { app } from 'electron';
 import { protos, SpeechClient } from '@google-cloud/speech';
+import { wordBoostPhrases } from '../../shared/settings.js';
 import { toBuffer } from '../audio/pcm.js';
 import { getSettings } from '../settings/store.js';
 import { buildV1StreamingConfig } from './streamingConfig.js';
@@ -24,7 +25,10 @@ function start(handlers: StreamHandlers): void {
     if (client === null) {
       client = new SpeechClient({ keyFilename: resolve(app.getAppPath(), KEY_FILENAME) });
     }
-    const opened = client.streamingRecognize(buildV1StreamingConfig(getSettings().model));
+    const settings = getSettings();
+    const opened = client.streamingRecognize(
+      buildV1StreamingConfig(settings.model, wordBoostPhrases(settings.wordBoost)),
+    );
     stream = opened;
     opened
       .on('data', (response: StreamingResponse) => forwardTranscript(response, handlers.onResult, LOG_LABEL))

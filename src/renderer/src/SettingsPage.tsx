@@ -23,12 +23,16 @@ import {
   VAD_THRESHOLD_STEP,
   type VolumeMeterUnit,
   VOLUME_METER_UNIT_OPTIONS,
+  WORD_BOOST_LEVELS,
 } from '../../shared/settings';
 import { Select } from './components/Select';
+
+type SettingsTab = 'general' | 'wordBoost';
 
 export function SettingsPage(): ReactNode {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [tab, setTab] = useState<SettingsTab>('general');
 
   useEffect(() => {
     void window.api.getSettings().then(setSettings);
@@ -67,6 +71,17 @@ export function SettingsPage(): ReactNode {
       <div className="mx-auto flex max-w-md flex-col gap-6 px-5 py-6">
         <h1 className="text-base font-semibold">Settings</h1>
 
+        <div className="flex gap-1 border-b border-white/10">
+          <TabButton label="General" active={tab === 'general'} onClick={() => setTab('general')} />
+          <TabButton
+            label="Word boost"
+            active={tab === 'wordBoost'}
+            onClick={() => setTab('wordBoost')}
+          />
+        </div>
+
+        {tab === 'general' && (
+          <>
         <Section title="Model">
           <Field label="Recognition (version_model_language)">
             <Select
@@ -190,6 +205,10 @@ export function SettingsPage(): ReactNode {
           <UsageRow label="This month" minutes={usage?.thisMonthMinutes ?? 0} />
           <UsageRow label="Last month" minutes={usage?.lastMonthMinutes ?? 0} />
         </Section>
+          </>
+        )}
+
+        {tab === 'wordBoost' && <WordBoostTab settings={settings} apply={apply} />}
 
         <button
           type="button"
@@ -200,6 +219,91 @@ export function SettingsPage(): ReactNode {
         </button>
       </div>
     </div>
+  );
+}
+
+function TabButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}): ReactNode {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`-mb-px border-b-2 px-3 py-1.5 text-sm font-medium ${
+        active
+          ? 'border-blue-500 text-gray-100'
+          : 'border-transparent text-gray-400 hover:text-gray-200'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+// Word boost groups engineering vocabulary by recognition boost strength. Each
+// level's text field holds a comma-separated list; the backend splits and sends
+// them as adaptation phrases so models bias toward these terms.
+function WordBoostTab({
+  settings,
+  apply,
+}: {
+  settings: AppSettings;
+  apply: (next: Promise<AppSettings>) => Promise<void>;
+}): ReactNode {
+  return (
+    <Section title="Word boost">
+      <p className="text-xs text-gray-500">
+        Improve recognition of specific terms (e.g. exe, cd, 辨識, 測試). Separate words with
+        commas. Higher boost biases more strongly toward the listed words.
+      </p>
+
+      <label className="flex items-center justify-between gap-3 text-sm">
+        <span className="text-gray-300">Enable word boost</span>
+        <input
+          type="checkbox"
+          className="h-4 w-4 accent-blue-500"
+          checked={settings.wordBoost.enabled}
+          onChange={(event) =>
+            void apply(window.api.updateSettings({ wordBoost: { enabled: event.target.checked } }))
+          }
+        />
+      </label>
+
+      {WORD_BOOST_LEVELS.map((level) => (
+        <Field key={level} label={`Boost ${level}`}>
+          <input
+            type="text"
+            className="rounded-md border border-white/10 bg-gray-800 px-2 py-1.5 text-sm text-gray-100 outline-none focus:border-blue-500"
+            value={settings.wordBoost.phrasesByBoost[`${level}`]}
+            onChange={(event) =>
+              void apply(
+                window.api.updateSettings({
+                  wordBoost: {
+                    phrasesByBoost: {
+                      ...settings.wordBoost.phrasesByBoost,
+                      [`${level}`]: event.target.value,
+                    },
+                  },
+                }),
+              )
+            }
+          />
+          <p className="text-xs text-gray-500">
+            {level === 20
+              ? 'Strongest bias; use for terms that are often misheard.'
+              : level === 5
+                ? 'Mild bias; a light nudge toward these words.'
+                : 'Moderate bias.'}
+          </p>
+        </Field>
+      ))}
+    </Section>
   );
 }
 

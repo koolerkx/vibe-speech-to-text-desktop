@@ -73,7 +73,7 @@ function probeV2(label: string, model: ModelSettings): Promise<ProbeResult> {
       })
       .on('data', () => {});
 
-    stream.write(buildV2ConfigRequest(model, recognizerPath));
+    stream.write(buildV2ConfigRequest(model, recognizerPath, []));
     const silence = makeSilencePcm(SILENCE_SECONDS);
     for (let offset = 0; offset < silence.length; offset += V2_MAX_AUDIO_CHUNK_BYTES) {
       stream.write({ audio: silence.subarray(offset, offset + V2_MAX_AUDIO_CHUNK_BYTES) });
